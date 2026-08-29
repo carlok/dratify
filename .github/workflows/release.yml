@@ -46,6 +46,11 @@ jobs:
           name: dist
           path: dist/
       - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # Re-running a release must not be an error. The crates job has the
+          # same property via an explicit version check; this is PyPI's
+          # built-in equivalent.
+          skip-existing: true
 
   crates:
     needs: build
