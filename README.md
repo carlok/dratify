@@ -35,6 +35,27 @@ pip install "cdclkit[native]"    # brings wheels that register with dratify
 After that, `engine="auto"` uses the Rust checker (~18x faster on large proofs)
 with no further configuration.
 
+## Why you would want this
+
+Something reported that no solution exists, and you are about to act on it.
+Ship the hardware. Declare the configuration impossible. Sign off the safety
+argument. Close the bug as "cannot happen".
+
+That report is a bare assertion from a large, aggressively optimised program.
+A "yes" answer from a solver checks itself — walk the clauses, confirm each has
+a true literal. A "no" answer does not: it is a claim about all 2^n
+assignments, and nothing about it is verifiable unless the solver shows its
+work.
+
+DRAT is how it shows its work, and this is what reads it. Emitting proofs is
+routine; PySAT exposes them from six solver families. Checking them from Python
+has not been practical until now, and checking them from Rust meant shelling
+out to a C program.
+
+**When not to.** If you want to *solve* rather than check, this is not that —
+use [PySAT](https://pypi.org/project/python-sat/) or, from Rust, an established
+solver crate. If you never look at UNSAT answers, you do not need this at all.
+
 ## Check a proof from PySAT
 
 ```python
