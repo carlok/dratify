@@ -2,6 +2,12 @@
 
 **Check DRAT/DRUP proofs of unsatisfiability.** No dependencies.
 
+```bash
+cargo add dratify
+```
+
+Source: [github.com/carlok/dratify](https://github.com/carlok/dratify)
+
 A SAT solver that answers "unsatisfiable" is asking to be trusted. A DRAT proof
 is how it stops asking: the solver logs every clause it derives, and a checker
 that shares no code with it replays the log and confirms the empty clause
@@ -35,7 +41,9 @@ backwards from the empty clause, so a corrupted step is caught where it occurs.
 
 This crate is the accelerator behind the [`dratify`](https://pypi.org/project/dratify/)
 Python package, which ships an *independent* pure-Python implementation of the
-same checker. The two are differentially tested against each other on
+same checker and reaches this one through its `register_native()` seam --
+[`cdclkit-native`](https://pypi.org/project/cdclkit-native/) embeds this crate
+and supplies it. The two are differentially tested against each other on
 rejections as well as acceptances — proof checking is the one domain where two
 implementations agreeing is itself the evidence.
 

@@ -16,10 +16,24 @@ checker on PyPI installs on Linux x86-64 under Python ≤ 3.10 alone.
 pip install dratify              # pure Python, zero dependencies
 ```
 
-A Rust implementation of the same checker is published separately as the
-[`dratify` crate](https://crates.io/crates/dratify). Python bindings for it are
-not packaged yet; `engine="native"` is wired up and will pick them up when they
-are.
+The same checker is published as a Rust crate, for use from Rust directly:
+
+```bash
+cargo add dratify                # https://crates.io/crates/dratify
+```
+
+**Want the Rust checker from Python?** This package deliberately ships no
+compiled extension of its own -- installing a proof checker should never need a
+toolchain. Instead it exposes a seam, `register_native()`, and anything that
+already embeds the crate can supply an implementation. Today that is
+[`cdclkit-native`](https://pypi.org/project/cdclkit-native/):
+
+```bash
+pip install "cdclkit[native]"    # brings wheels that register with dratify
+```
+
+After that, `engine="auto"` uses the Rust checker (~18x faster on large proofs)
+with no further configuration.
 
 ## Check a proof from PySAT
 
@@ -47,14 +61,14 @@ Proof checking is the one domain where two independent implementations agreeing
 | | |
 |---|---|
 | **Pure Python** | zero dependencies, runs anywhere Python does |
-| **Rust** (crates.io) | ~18x faster; Python bindings not yet packaged |
+| **Rust** ([crate](https://crates.io/crates/dratify)) | ~18x faster; reachable from Python via `register_native()` |
 
 Neither is the "real" one. They have been differentially tested against each
 other on acceptances *and* on rejections, and they agree.
 
 ```python
 check_proof(formula, proof, engine="python")   # always available
-check_proof(formula, proof, engine="native")   # when bindings are installed
+check_proof(formula, proof, engine="native")   # once an implementation is registered
 check_proof(formula, proof, engine="auto")     # default: native when present
 ```
 
@@ -98,7 +112,8 @@ including four rejections.
 
 ## Related
 
-[`cdclkit`](https://github.com/carlok/cdclkit) is a from-scratch CDCL SAT
+[`cdclkit`](https://pypi.org/project/cdclkit/)
+([source](https://github.com/carlok/cdclkit)) is a from-scratch CDCL SAT
 solver by the same author that uses this package to check its own refutations.
 You do not need it to use `dratify` — checking a proof should never require
 installing a solver, which is why these are separate packages.
