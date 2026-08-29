@@ -1,0 +1,17 @@
+[package]
+name = "dratify"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.70"
+description = "Check DRAT/DRUP proofs of unsatisfiability. Forward checking, RUP and RAT, no dependencies."
+readme = "README.md"
+license = "Apache-2.0"
+repository = "https://github.com/carlok/dratify"
+keywords = ["sat", "drat", "proof", "checker", "unsatisfiability"]
+categories = ["algorithms", "science"]
+
+[dependencies]
+
+[profile.release]
+opt-level = 3
+lto = true
