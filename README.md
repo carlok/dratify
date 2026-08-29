@@ -146,6 +146,23 @@ called in-process — and loses 1.75x on the large one, while checking forward.
 On 10 proofs from two solvers, `dratify` and `drat-trim` agreed on every case,
 including four rejections.
 
+## Tests
+
+71 tests, 84% statement coverage, both gated in CI. The negative cases carry
+most of the weight: a checker that accepts everything passes any suite that
+only feeds it valid proofs, so there are tests for truncated proofs, bogus
+refutations of satisfiable formulas, clauses that are neither RUP nor RAT, and
+the tautological-resolvent case that makes some surprising clauses vacuously
+RAT.
+
+```bash
+python3 -m unittest discover -s tests
+python3 tests/coverage_report.py      # floor is 80%
+```
+
+The coverage tool uses the standard library's `trace` module, so checking this
+package needs no more dependencies than using it.
+
 ## Honest limitations
 
 - Forward checking only. Backward checking would close the large-proof gap.

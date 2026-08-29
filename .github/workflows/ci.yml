@@ -25,6 +25,17 @@ jobs:
       # property under test as much as the checker itself
       - run: PYTHONPATH=src python -m unittest discover -s tests -v
 
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # no pip install: the coverage tool uses the standard library's trace
+      # module, so the zero-dependency promise holds for the checks too
+      - run: python tests/coverage_report.py
+
   rust:
     strategy:
       fail-fast: false
