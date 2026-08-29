@@ -46,7 +46,7 @@ from .proof import (
 from .cnf import parse_dimacs, parse_dimacs_file, write_dimacs
 from . import _nativeinfo
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 
 __all__ = [
     "CNF",
