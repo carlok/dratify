@@ -13,9 +13,6 @@ BUILD_HINT = (
 
 
 def available() -> bool:
-    """True when the Rust checker can be imported."""
-    try:
-        import sable_native
-    except ImportError:
-        return False
-    return hasattr(sable_native, "check_proof")
+    """True when a native checker is importable or has been registered."""
+    from .proof import _native_module
+    return _native_module() is not None

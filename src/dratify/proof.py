@@ -661,13 +661,45 @@ def check_proof(
     )
 
 
+#: A native checker registered by another package, or None.
+#:
+#: `dratify` does not ship Python bindings for its Rust checker yet. Something
+#: that already has them -- `cdclkit`, which embeds the same crate -- can hand
+#: one over rather than letting `engine="auto"` fall back to the pure-Python
+#: checker, which is ~18x slower on large proofs.
+#:
+#: The registered module must expose `check_proof` with the same signature as
+#: the built-in native path below.
+_registered_native = None
+
+
+def register_native(module) -> None:
+    """Offer a native checker implementation to `check_proof`.
+
+    Call with a module exposing `check_proof`, or with None to unregister.
+    `dratify_native` is preferred when it is installed; this is the seam for
+    everyone else.
+    """
+    global _registered_native
+    if module is not None and not hasattr(module, "check_proof"):
+        raise TypeError("a native checker module must expose check_proof")
+    _registered_native = module
+
+
+def _native_module():
+    try:
+        import dratify_native
+        if hasattr(dratify_native, "check_proof"):
+            return dratify_native
+    except ImportError:
+        pass
+    return _registered_native
+
+
 def _native_check(formula: CNF, steps, check_rat: bool, apply_deletions: bool):
     """Run the native checker, or return None when it is unavailable."""
-    try:
-        import sable_native
-    except ImportError:
-        return None
-    if not hasattr(sable_native, "check_proof"):
+    sable_native = _native_module()
+    if sable_native is None:
         return None
 
     packed = [(kind == "d", list(lits)) for kind, lits in steps]

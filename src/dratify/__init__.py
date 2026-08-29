@@ -38,6 +38,7 @@ from .cnf import CNF
 from .lits import from_dimacs, to_dimacs
 from .proof import (
     DRATChecker,
+    register_native,
     MemoryProof,
     ProofWriter,
     check_proof,
@@ -45,7 +46,7 @@ from .proof import (
 from .cnf import parse_dimacs, parse_dimacs_file, write_dimacs
 from . import _nativeinfo
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 __all__ = [
     "CNF",
@@ -53,6 +54,7 @@ __all__ = [
     "MemoryProof",
     "ProofWriter",
     "check_proof",
+    "register_native",
     "parse_dimacs",
     "parse_dimacs_file",
     "write_dimacs",

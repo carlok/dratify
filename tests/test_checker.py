@@ -11,7 +11,8 @@ from __future__ import annotations
 import pathlib
 import unittest
 
-from dratify import CNF, check_proof, native_available, parse_dimacs
+from dratify import (CNF, check_proof, native_available, parse_dimacs,
+                     register_native)
 
 HERE = pathlib.Path(__file__).parent
 
@@ -84,6 +85,45 @@ class TestEngines(unittest.TestCase):
         with self.assertRaises(RuntimeError) as cm:
             check_proof(parse_dimacs(SQUARE), SQUARE_PROOF, engine="native")
         self.assertIn("engine=", str(cm.exception))
+
+
+class TestNativeRegistration(unittest.TestCase):
+    """A second implementation can be offered from outside this package.
+
+    This package does not ship Python bindings for its Rust checker yet.
+    Something that already embeds the same crate can hand one over, rather than
+    letting `engine="auto"` silently fall back to the pure-Python checker --
+    which is correct, but ~18x slower on large proofs.
+    """
+
+    def tearDown(self):
+        register_native(None)
+
+    def test_a_module_without_check_proof_is_refused(self):
+        class NotAChecker:
+            pass
+        with self.assertRaises(TypeError):
+            register_native(NotAChecker())
+
+    def test_registering_none_unregisters(self):
+        register_native(None)
+        self.assertFalse(native_available())
+
+    def test_a_registered_checker_is_used_and_must_agree(self):
+        """If something registers a checker, it must match the Python one."""
+        try:
+            import cdclkit_native as impl
+        except ImportError:
+            self.skipTest("no native checker available to register")
+        register_native(impl)
+        self.assertTrue(native_available())
+        f = parse_dimacs(SQUARE)
+        for proof, expected in [(SQUARE_PROOF, True), ("1 0\n", False)]:
+            py = check_proof(f, proof, engine="python")
+            rs = check_proof(f, proof, engine="native")
+            self.assertIs(py.ok, expected)
+            self.assertIs(rs.ok, py.ok, "registered checker disagreed with Python")
+            self.assertEqual(py.reason, rs.reason)
 
 
 if __name__ == "__main__":
