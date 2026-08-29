@@ -36,3 +36,7 @@ Source = "https://github.com/carlok/dratify"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+# PEP 561, so the annotations in the source are actually usable downstream.
+[tool.setuptools.package-data]
+dratify = ["py.typed"]

@@ -16,6 +16,30 @@ checker on PyPI installs on Linux x86-64 under Python ≤ 3.10 alone.
 pip install dratify              # pure Python, zero dependencies
 ```
 
+```python
+from dratify import parse_dimacs, check_proof
+
+formula = parse_dimacs(open("problem.cnf").read())
+result = check_proof(formula, open("proof.drat").read())
+
+print(result.ok)              # True  -- the refutation is genuine
+print(result.reached_empty)   # True  -- the empty clause was derived
+```
+
+No subprocess, no compiler, no temporary files.
+
+**Use this if:**
+
+- ✅ You have a DRAT or DRUP proof and need to verify it
+- ✅ You are about to act on "no solution exists"
+- ✅ You want it in-process, from Python or Rust, on any platform
+- ✅ You want two independent implementations that agree
+
+**Use something else if:**
+
+- ❌ You want to *solve* rather than check → [PySAT](https://pypi.org/project/python-sat/), or [cdclkit](https://pypi.org/project/cdclkit/)
+- ❌ You only ever look at SAT answers — then you do not need this at all
+
 The same checker is published as a Rust crate, for use from Rust directly:
 
 ```bash
@@ -138,6 +162,11 @@ including four rejections.
 solver by the same author that uses this package to check its own refutations.
 You do not need it to use `dratify` — checking a proof should never require
 installing a solver, which is why these are separate packages.
+
+## Generating code against this?
+
+[AGENTS.md](AGENTS.md) lists the API's sharp edges — the mistakes that have
+actually been made, not hypothetical ones. Worth reading before writing a line.
 
 ## Licence
 
