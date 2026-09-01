@@ -276,8 +276,24 @@ def parse_dimacs(text: str, strict: bool = False) -> CNF:
             parts = line.split()
             if len(parts) < 4 or parts[1] != "cnf":
                 raise ValueError(f"line {lineno}: malformed header {line!r}")
-            declared_vars = int(parts[2])
-            declared_clauses = int(parts[3])
+            try:
+                declared_vars = int(parts[2])
+                declared_clauses = int(parts[3])
+            except ValueError:
+                raise ValueError(
+                    f"line {lineno}: malformed header {line!r}") from None
+            # A header is untrusted input, and `nvars` sizes the checker's
+            # watch and value arrays -- `p cnf 99999999999 0` is one line that
+            # asks for hundreds of gigabytes. Every variable the file really
+            # mentions needs at least one character to write, so a count larger
+            # than the whole text cannot describe this file.
+            if declared_vars < 0 or declared_vars > len(text):
+                raise ValueError(
+                    f"line {lineno}: header declares {declared_vars} variables, "
+                    f"which this {len(text)}-character input cannot contain")
+            if declared_clauses < 0:
+                raise ValueError(
+                    f"line {lineno}: header declares {declared_clauses} clauses")
             if declared_vars > f.nvars:
                 f.nvars = declared_vars
             continue

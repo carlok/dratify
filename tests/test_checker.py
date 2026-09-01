@@ -63,21 +63,11 @@ class TestEngines(unittest.TestCase):
         self.assertTrue(
             check_proof(parse_dimacs(SQUARE), SQUARE_PROOF, engine="python").ok)
 
-    @unittest.skipUnless(native_available(), "Rust checker not installed")
-    def test_engines_agree(self):
-        """Both engines, both verdicts. Agreement is the whole product."""
-        cases = [
-            (SQUARE, SQUARE_PROOF, True),
-            (SQUARE, "1 0\n", False),
-            ((HERE / "php32.cnf").read_text(),
-             (HERE / "php32.drat").read_text(), True),
-        ]
-        for text, proof, expected in cases:
-            f = parse_dimacs(text)
-            py = check_proof(f, proof, engine="python")
-            rs = check_proof(f, proof, engine="native")
-            self.assertIs(py.ok, expected)
-            self.assertIs(rs.ok, py.ok, "engines disagreed")
+    # The engine-agreement tests used to live here behind
+    # `skipUnless(native_available())`, which is evaluated at import time --
+    # before anything can register a checker -- so they never ran. They are now
+    # tests/test_differential.py, which registers explicitly and which CI
+    # installs a native checker for.
 
     def test_native_requested_but_absent_explains_itself(self):
         if native_available():
@@ -109,21 +99,17 @@ class TestNativeRegistration(unittest.TestCase):
         register_native(None)
         self.assertFalse(native_available())
 
-    def test_a_registered_checker_is_used_and_must_agree(self):
-        """If something registers a checker, it must match the Python one."""
-        try:
-            import cdclkit_native as impl
-        except ImportError:
-            self.skipTest("no native checker available to register")
-        register_native(impl)
+    def test_registering_a_checker_makes_it_available(self):
+        """The seam itself. Whether the two agree is test_differential.py."""
+        class Stub:
+            @staticmethod
+            def check_proof(*a):
+                return (True, "stub", 1, 1, 0, 0, 0, 0, -1, True)
+
+        register_native(Stub())
         self.assertTrue(native_available())
-        f = parse_dimacs(SQUARE)
-        for proof, expected in [(SQUARE_PROOF, True), ("1 0\n", False)]:
-            py = check_proof(f, proof, engine="python")
-            rs = check_proof(f, proof, engine="native")
-            self.assertIs(py.ok, expected)
-            self.assertIs(rs.ok, py.ok, "registered checker disagreed with Python")
-            self.assertEqual(py.reason, rs.reason)
+        register_native(None)
+        self.assertFalse(native_available())
 
 
 if __name__ == "__main__":

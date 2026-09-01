@@ -36,6 +36,31 @@ jobs:
       # module, so the zero-dependency promise holds for the checks too
       - run: python tests/coverage_report.py
 
+  # The claim in README, SECURITY.md and both Rust docs is that the two
+  # implementations are differentially tested against each other. That was not
+  # true of anything that ran: the comparisons were behind skip guards that
+  # could never be satisfied here. This job is what makes the claim checkable,
+  # so it must not be allowed to skip silently -- the last step fails if it did.
+  differential:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      # cdclkit-native embeds the same Rust crate and exposes check_proof.
+      # Installing just the compiled module keeps this out of a release cycle
+      # with cdclkit, which depends on this package.
+      - run: pip install cdclkit-native
+      - name: the two checkers must agree
+        run: |
+          PYTHONPATH=src python -m unittest tests.test_differential -v 2>&1 | tee /tmp/diff.log
+          grep -q "^OK" /tmp/diff.log
+          if grep -qE "skipped|no native checker" /tmp/diff.log; then
+            echo "::error::the differential tests skipped -- the agreement claim is untested"
+            exit 1
+          fi
+
   rust:
     strategy:
       fail-fast: false

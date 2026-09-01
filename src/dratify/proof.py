@@ -133,10 +133,17 @@ class ProofWriter:
             self.out.write(s)
 
     def add(self, lits: Iterable[int]) -> None:
+        # Materialise before doing anything else. The signature says Iterable,
+        # and a generator is consumed by the join -- testing it for emptiness
+        # afterwards inspects an exhausted generator, which is always truthy,
+        # so an empty clause came out as " 0\n" with a leading space.
+        lits = tuple(lits)
         self.n_add += 1
-        self._emit(" ".join(str(to_dimacs(l)) for l in lits) + (" 0\n" if lits else "0\n"))
+        body = " ".join(str(to_dimacs(l)) for l in lits)
+        self._emit(f"{body} 0\n" if lits else "0\n")
 
     def delete(self, lits: Iterable[int]) -> None:
+        lits = tuple(lits)
         self.n_del += 1
         self._emit("d " + " ".join(str(to_dimacs(l)) for l in lits) + " 0\n")
 
@@ -200,9 +207,15 @@ class MemoryProof:
 
 
 def parse_proof(text: str) -> list[tuple[str, tuple[int, ...]]]:
-    """Parse a text DRAT proof into internal-literal steps."""
+    """Parse a text DRAT proof into internal-literal steps.
+
+    Proofs arrive from other people's solvers, so this reports *where* it gave
+    up. `cnf.parse_dimacs` has always named the line and the token; this did
+    not, and a malformed `.drat` produced a bare "invalid literal for int()"
+    from the middle of a checker.
+    """
     steps: list[tuple[str, tuple[int, ...]]] = []
-    for raw in text.splitlines():
+    for lineno, raw in enumerate(text.splitlines(), 1):
         line = raw.strip()
         if not line or line[0] == "c":
             continue
@@ -213,10 +226,22 @@ def parse_proof(text: str) -> list[tuple[str, tuple[int, ...]]]:
         lits: list[int] = []
         terminated = False
         for tok in line.split():
-            d = int(tok)
+            try:
+                d = int(tok)
+            except ValueError:
+                raise ValueError(
+                    f"proof line {lineno}: bad token {tok!r}") from None
             if d == 0:
                 terminated = True
                 break
+            # A literal sizes the propagator's arrays the same way the CNF
+            # header does, and a proof may legitimately introduce fresh
+            # variables (that is what RAT is for) -- so bound it by what the
+            # text could describe rather than by the formula.
+            if abs(d) > len(text):
+                raise ValueError(
+                    f"proof line {lineno}: literal {d} names a variable this "
+                    f"{len(text)}-character proof cannot contain")
             lits.append(from_dimacs(d))
         if not terminated and lits:
             raise ValueError(f"unterminated proof line: {raw!r}")
@@ -679,11 +704,25 @@ def register_native(module) -> None:
     Call with a module exposing `check_proof`, or with None to unregister.
     `dratify_native` is preferred when it is installed; this is the seam for
     everyone else.
+
+    What is handed over here decides whether a proof is accepted, so the
+    contract is enforced rather than assumed: see `_native_check`, which
+    rejects a malformed result instead of unpacking it into a verdict.
     """
     global _registered_native
     if module is not None and not hasattr(module, "check_proof"):
-        raise TypeError("a native checker module must expose check_proof")
+        raise TypeError(
+            f"a native checker must expose check_proof; {module!r} does not")
     _registered_native = module
+
+
+def native_implementation():
+    """The module `engine="native"` would use, or None.
+
+    `dratify_native` wins over anything registered, so a caller who registered
+    an implementation and got different behaviour has a way to find out why.
+    """
+    return _native_module()
 
 
 def _native_module():
@@ -691,9 +730,17 @@ def _native_module():
         import dratify_native
         if hasattr(dratify_native, "check_proof"):
             return dratify_native
-    except ImportError:
+    except Exception:
+        # not just ImportError: a broken wheel raises OSError or RuntimeError
+        # at import, and that must not escape `native_available()`.
         pass
     return _registered_native
+
+
+#: what `check_proof` unpacks from a native implementation, in order
+_NATIVE_FIELDS = ("ok", "reason", "steps", "rup_steps", "rat_steps",
+                  "deletions", "ignored_deletions", "resolvents_checked",
+                  "failed_step", "reached_empty")
 
 
 def _native_check(formula: CNF, steps, check_rat: bool, apply_deletions: bool):
@@ -703,10 +750,39 @@ def _native_check(formula: CNF, steps, check_rat: bool, apply_deletions: bool):
         return None
 
     packed = [(kind == "d", list(lits)) for kind, lits in steps]
+    try:
+        raw = sable_native.check_proof(
+            formula.nvars, [list(c) for c in formula.clauses], packed,
+            check_rat, apply_deletions)
+    except TypeError as e:
+        raise TypeError(
+            f"the registered native checker {sable_native!r} does not accept "
+            f"the expected arguments (nvars, clauses, steps, check_rat, "
+            f"apply_deletions): {e}") from None
+
+    # A foreign module decides whether a proof is accepted. Unpacking its
+    # result blindly turns a version skew into "not enough values to unpack"
+    # raised from inside a checker -- an exception a caller cannot tell apart
+    # from a verdict, which SECURITY.md rates High.
+    try:
+        fields = tuple(raw)
+    except TypeError:
+        raise TypeError(
+            f"the native checker {sable_native!r} returned {type(raw).__name__}, "
+            f"expected a {len(_NATIVE_FIELDS)}-tuple "
+            f"{_NATIVE_FIELDS}") from None
+    if len(fields) != len(_NATIVE_FIELDS):
+        raise ValueError(
+            f"the native checker {sable_native!r} returned {len(fields)} values, "
+            f"expected {len(_NATIVE_FIELDS)}: {_NATIVE_FIELDS}. This usually "
+            f"means it was built against a different version of dratify.")
     (ok, reason, nsteps, rup, rat, dels, ignored, resolvents, failed_step,
-     reached_empty) = sable_native.check_proof(
-        formula.nvars, [list(c) for c in formula.clauses], packed,
-        check_rat, apply_deletions)
+     reached_empty) = fields
+    if ok and not reached_empty:
+        raise ValueError(
+            f"the native checker {sable_native!r} reported a valid refutation "
+            f"that never derived the empty clause. Those cannot both be true, "
+            f"so its result is not trustworthy.")
 
     r = CheckResult()
     r.ok = ok

@@ -148,7 +148,7 @@ including four rejections.
 
 ## Tests
 
-71 tests, 84% statement coverage, both gated in CI. The negative cases carry
+96 tests, 87% statement coverage, both gated in CI. The negative cases carry
 most of the weight: a checker that accepts everything passes any suite that
 only feeds it valid proofs, so there are tests for truncated proofs, bogus
 refutations of satisfiable formulas, clauses that are neither RUP nor RAT, and
@@ -162,6 +162,12 @@ python3 tests/coverage_report.py      # floor is 80%
 
 The coverage tool uses the standard library's `trace` module, so checking this
 package needs no more dependencies than using it.
+
+A separate CI job installs a native checker and runs
+`tests/test_differential.py`, which compares the two implementations on every
+verdict field over a 150-instance random sweep plus hand-written cases. That
+job fails if those tests *skip* — the agreement claim above is only worth
+making while something is checking it.
 
 ## Honest limitations
 

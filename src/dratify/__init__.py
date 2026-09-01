@@ -20,7 +20,8 @@ one checker on PyPI installs only on Linux x86-64 under Python <= 3.10.
 Two engines, and that is the point
 ----------------------------------
 The pure-Python checker has zero dependencies and runs anywhere Python does.
-The optional Rust accelerator (``pip install dratify[native]``) is roughly 18x
+The optional Rust accelerator (``pip install "cdclkit[native]"``, which
+registers itself here -- there is no ``dratify[native]`` extra) is roughly 18x
 faster. Neither is the "real" one: proof checking is the one domain where two
 independent implementations agreeing *is* the evidence, and these two have been
 differentially tested against each other, on acceptances and on rejections.
@@ -37,11 +38,14 @@ from __future__ import annotations
 from .cnf import CNF
 from .lits import from_dimacs, to_dimacs
 from .proof import (
+    CheckResult,
     DRATChecker,
     register_native,
     MemoryProof,
     ProofWriter,
     check_proof,
+    parse_proof,
+    native_implementation,
 )
 from .cnf import parse_dimacs, parse_dimacs_file, write_dimacs
 from . import _nativeinfo
@@ -50,10 +54,14 @@ __version__ = "0.1.2"
 
 __all__ = [
     "CNF",
+    # the return type of check_proof: this package ships py.typed, so it has to
+    # be importable for anyone annotating what the API hands back
+    "CheckResult",
     "DRATChecker",
     "MemoryProof",
     "ProofWriter",
     "check_proof",
+    "parse_proof",
     "register_native",
     "parse_dimacs",
     "parse_dimacs_file",
@@ -61,6 +69,7 @@ __all__ = [
     "from_dimacs",
     "to_dimacs",
     "native_available",
+    "native_implementation",
     "__version__",
 ]
 
