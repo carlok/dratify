@@ -96,8 +96,9 @@ def php(holes: int) -> str:
     return f"p cnf {pigeons * holes} {len(clauses)}\n{body}"
 
 
-#: `--quick` stops before php(10,9), which needs ~130s of pure Python on an
-#: M-series laptop -- too slow for a per-push CI job to be worth having.
+#: `--quick` stops before php(10,9), which needs ~130s per pure-Python check on
+#: an M-series laptop -- too slow for a per-push CI job to be worth having, and
+#: slow enough that `--repeats 3` on it is a twenty-minute run.
 QUICK_HOLES = (6, 7, 8)
 FULL_HOLES = (6, 7, 8, 9)
 
@@ -249,11 +250,20 @@ def perturbations(proof_text: str) -> list[tuple[str, str]]:
     everything agrees with every other checker on every valid proof. These are
     the cases that separate them.
 
-    Note that not every perturbation is invalid, and the script does not assume
-    it is. Flipping the first literal of a step changes which literal RAT uses
-    as its pivot, and the step is often still justified -- both checkers accept
-    it, and that agreement is as much a result as a shared rejection. What
-    would be a finding is the two disagreeing.
+    Two outcomes here are expected and neither is a failure:
+
+    * Not every perturbation is invalid. Flipping the first literal of a step
+      changes which literal RAT uses as its pivot, and the step is often still
+      justified -- both checkers accept it.
+    * drat-trim checks *backwards*, so it verifies only the lemmas the
+      refutation actually needs. On uuf100-01 it reports "304 of 403 lemmas in
+      core": a corrupted step among the other 99 is never looked at, and
+      drat-trim returns VERIFIED. This checker verifies every step in order and
+      rejects it. That divergence is the forward/backward trade-off stated in
+      the README, and it is the one direction of disagreement that is a feature.
+
+    The direction that would be a real finding is the reverse: this checker
+    accepting a proof drat-trim rejects. `main` fails only on that.
     """
     lines = [ln for ln in proof_text.splitlines() if ln.strip()]
     out = []
@@ -272,6 +282,19 @@ def perturbations(proof_text: str) -> list[tuple[str, str]]:
     # a refutation asserting the empty clause with nothing behind it
     out.append(("unjustified empty clause", "0\n"))
     return out
+
+
+def caught_only_here(r: dict) -> bool:
+    """A corrupted step this checker rejected and drat-trim never examined."""
+    return (not r["dratify_accepted"]) and r["drat_trim_accepted"] is True
+
+
+def verdict(r: dict) -> str:
+    if r["agree"]:
+        return "agree"
+    if caught_only_here(r):
+        return "caught here only"
+    return "UNSOUND"
 
 
 def provenance() -> dict:
@@ -296,6 +319,9 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--quick", action="store_true",
                     help="generated instances only; no network")
+    ap.add_argument("--max-holes", type=int, metavar="N",
+                    help="largest pigeonhole instance to run (default 8 with "
+                         "--quick, 9 otherwise); php(10,9) is the slow one")
     ap.add_argument("--repeats", type=int, default=3,
                     help="timed runs per measurement, best taken (default 3)")
     ap.add_argument("--json", type=pathlib.Path,
@@ -308,8 +334,10 @@ def main() -> int:
 
     import tempfile
 
-    instances = (generated(QUICK_HOLES) if args.quick
-                 else generated(FULL_HOLES) + fetched())
+    holes = QUICK_HOLES if args.quick else FULL_HOLES
+    if args.max_holes is not None:
+        holes = tuple(h for h in holes if h <= args.max_holes)
+    instances = generated(holes) if args.quick else generated(holes) + fetched()
     prov = provenance()
     print(f"# {prov['system']} / {prov['machine']} / python {prov['python']}")
     print(f"# dratify {prov['dratify']}, native: {prov['native']}")
@@ -367,24 +395,31 @@ def main() -> int:
                     else "rejects" if r["drat_trim_accepted"] is False else "-")
             print(f"{r['case']:<28}{r['instance']:<14}"
                   f"{'accepts' if r['dratify_accepted'] else 'rejects':<10}"
-                  f"{them:<11}"
-                  f"{'agree' if r['agree'] else 'DISAGREE'}")
+                  f"{them:<11}{verdict(r)}")
         agreed = sum(1 for r in perturbed if r["agree"])
         rejected_by_both = sum(1 for r in perturbed
                                if not r["dratify_accepted"]
                                and r["drat_trim_accepted"] is False)
+        caught = sum(1 for r in perturbed if caught_only_here(r))
         print(f"\n{agreed}/{len(perturbed)} agree; "
               f"{rejected_by_both} rejected by both")
+        if caught:
+            print(f"{caught} corrupted step(s) caught here and not by "
+                  f"drat-trim, whose backward pass never reaches them -- "
+                  f"this is the forward-checking trade-off, not a defect")
 
     result = {"provenance": prov, "rows": rows, "perturbations": perturbed}
     if args.json:
         args.json.write_text(json.dumps(result, indent=2) + "\n")
         print(f"\nwrote {args.json}")
 
-    split = [r for r in perturbed if not r["agree"]]
-    if split:
-        print("\nERROR: the two checkers disagreed on: "
-              + ", ".join(f"{r['instance']}/{r['case']}" for r in split),
+    # Only one direction is alarming: this checker accepting what the
+    # reference rejects. The reverse is the forward/backward difference.
+    unsound = [r for r in perturbed
+               if r["dratify_accepted"] and r["drat_trim_accepted"] is False]
+    if unsound:
+        print("\nERROR: this checker accepted a proof drat-trim rejected: "
+              + ", ".join(f"{r['instance']}/{r['case']}" for r in unsound),
               file=sys.stderr)
         return 1
 

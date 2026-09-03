@@ -40,7 +40,7 @@ released version.
 ## What this is not
 
 The checker is carefully written, differentially tested against a second
-implementation, and cross-validated against `drat-trim` — but it is **not
-formally verified**. If you need a checker with a machine-checked correctness
+implementation, and cross-validated against `drat-trim` (`bench/repro.py`
+reruns both comparisons from scratch) — but it is **not formally verified**. If you need a checker with a machine-checked correctness
 proof, use [cake_lpr](https://github.com/tanyongkiam/cake_lpr), which is
 verified in CakeML and consumes LRAT.

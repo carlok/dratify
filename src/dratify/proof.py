@@ -691,7 +691,7 @@ def check_proof(
 #: `dratify` does not ship Python bindings for its Rust checker yet. Something
 #: that already has them -- `cdclkit`, which embeds the same crate -- can hand
 #: one over rather than letting `engine="auto"` fall back to the pure-Python
-#: checker, which is ~18x slower on large proofs.
+#: checker, which is 12-18x slower (see bench/repro.py).
 #:
 #: The registered module must expose `check_proof` with the same signature as
 #: the built-in native path below.

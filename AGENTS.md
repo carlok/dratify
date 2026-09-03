@@ -53,8 +53,13 @@ worked example that reads both file formats in
 ## Checking is forward, not backward
 
 Every step is verified in order, rather than working backwards from the empty
-clause as `drat-trim` does. That is slower on large proofs — about 1.75x on a
-209,367-step proof — and it catches a corrupted step where it occurs.
+clause as `drat-trim` does. That is slower on large proofs — roughly 2x on a
+250,000-step one — and it catches a corrupted step where it occurs.
+
+This is not a nuance. `drat-trim` checks only the lemmas its refutation needs
+("304 of 403 lemmas in core" on uuf100-01); corrupt one of the other 99 and it
+still reports VERIFIED, while this checker rejects. Run `python bench/repro.py`
+to see it happen.
 
 ## This checks proofs; it does not solve
 

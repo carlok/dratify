@@ -38,6 +38,7 @@ Source = "https://github.com/carlok/dratify"
 Issues = "https://github.com/carlok/dratify/issues"
 Changelog = "https://github.com/carlok/dratify/blob/main/CHANGELOG.md"
 Security = "https://github.com/carlok/dratify/blob/main/SECURITY.md"
+Documentation = "https://github.com/carlok/dratify/blob/main/README.md"
 
 [tool.setuptools.packages.find]
 where = ["src"]

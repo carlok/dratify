@@ -1,0 +1,51 @@
+name: fuzz
+
+# The unit suite covers the hostile inputs someone thought of. This covers the
+# ones nobody did, at seeds nobody has tried, which is the only way a fixed
+# corpus finds anything new. Two properties are worth the machine time:
+# the parsers must fail as ValueError rather than crash or hang on untrusted
+# text, and the Python and Rust checkers must agree on every field -- the claim
+# this package is sold on, tested here on inputs neither author chose.
+
+on:
+  schedule:
+    - cron: "23 4 * * 2"
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: "fuzz seed (blank uses the matrix)"
+        required: false
+        default: ""
+      rounds:
+        description: "rounds per property"
+        required: false
+        default: "20000"
+
+permissions:
+  contents: read
+
+jobs:
+  seeds:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        seed: [1, 4242, 77777, 8675309]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      # The agreement property needs a native checker. Without one the fuzzer
+      # still runs but silently tests half of what it claims to, so the run is
+      # failed rather than allowed to look green.
+      - run: pip install cdclkit-native
+      - name: fuzz
+        run: |
+          PYTHONPATH=src python tests/fuzz.py \
+            --seed ${{ github.event.inputs.seed || matrix.seed }} \
+            --rounds ${{ github.event.inputs.rounds || 20000 }} | tee /tmp/fuzz.log
+          grep -q "native checker: cdclkit_native" /tmp/fuzz.log || {
+            echo "::error::no native checker -- the agreement property did not run"
+            exit 1
+          }
