@@ -37,12 +37,15 @@ __all__ = ["Clause", "CNF", "parse_dimacs", "parse_dimacs_file", "write_dimacs"]
 
 
 class Clause:
-    """A runtime clause with two watched literals in ``lits[0]`` and ``lits[1]``.
+    """A clause, with two watched literals in ``lits[0]`` and ``lits[1]``.
 
-    Invariant maintained by the solver: if the clause is not satisfied at a
-    lower level, ``lits[0]`` and ``lits[1]`` are either unassigned or assigned
-    true, or the clause is conflicting / unit.  See
-    :meth:`sable.solver.Solver._propagate` for the exact restoration logic.
+    The checker in :mod:`dratify.proof` uses the watch positions for unit
+    propagation.  The remaining fields (``learnt``, ``lbd``, ``act``,
+    ``deleted``, ``seen``) carry no meaning here: they exist because
+    `cdclkit <https://github.com/carlok/cdclkit>`_ imports this class for its
+    solver, which maintains the watch invariant that if the clause is not
+    satisfied at a lower level, ``lits[0]`` and ``lits[1]`` are either
+    unassigned or assigned true, or the clause is conflicting / unit.
     """
 
     __slots__ = ("lits", "learnt", "lbd", "act", "deleted", "seen")

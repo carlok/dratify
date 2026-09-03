@@ -13,7 +13,8 @@ r.reached_empty   # was the empty clause actually derived?
 A proof whose every step verifies but which never reaches the empty clause is
 **not** a refutation — it is a valid but incomplete derivation. Conflating the
 two is exactly how a truncated proof gets accepted. `CheckResult` also carries
-`reason`, `steps`, `rup_steps`, `rat_steps`, `failed_step`, `failed_clause`.
+`reason`, `steps`, `rup_steps`, `rat_steps`, `deletions`,
+`ignored_deletions`, `resolvents_checked`, `failed_step`, `failed_clause`.
 
 ## `proof` accepts several shapes
 
@@ -47,7 +48,7 @@ comes **first**. Steps are `(is_deletion, literals)`.
 
 The crate has no DIMACS or DRAT parser; it takes data structures. There is a
 worked example that reads both file formats in
-`../cdclkit/docs/tutorial/code/rust-demo/src/bin/check_files.rs`.
+[cdclkit's tutorial](https://github.com/carlok/cdclkit/blob/main/docs/tutorial/code/rust-demo/src/bin/check_files.rs).
 
 ## Checking is forward, not backward
 

@@ -745,18 +745,18 @@ _NATIVE_FIELDS = ("ok", "reason", "steps", "rup_steps", "rat_steps",
 
 def _native_check(formula: CNF, steps, check_rat: bool, apply_deletions: bool):
     """Run the native checker, or return None when it is unavailable."""
-    sable_native = _native_module()
-    if sable_native is None:
+    native = _native_module()
+    if native is None:
         return None
 
     packed = [(kind == "d", list(lits)) for kind, lits in steps]
     try:
-        raw = sable_native.check_proof(
+        raw = native.check_proof(
             formula.nvars, [list(c) for c in formula.clauses], packed,
             check_rat, apply_deletions)
     except TypeError as e:
         raise TypeError(
-            f"the registered native checker {sable_native!r} does not accept "
+            f"the registered native checker {native!r} does not accept "
             f"the expected arguments (nvars, clauses, steps, check_rat, "
             f"apply_deletions): {e}") from None
 
@@ -768,19 +768,19 @@ def _native_check(formula: CNF, steps, check_rat: bool, apply_deletions: bool):
         fields = tuple(raw)
     except TypeError:
         raise TypeError(
-            f"the native checker {sable_native!r} returned {type(raw).__name__}, "
+            f"the native checker {native!r} returned {type(raw).__name__}, "
             f"expected a {len(_NATIVE_FIELDS)}-tuple "
             f"{_NATIVE_FIELDS}") from None
     if len(fields) != len(_NATIVE_FIELDS):
         raise ValueError(
-            f"the native checker {sable_native!r} returned {len(fields)} values, "
+            f"the native checker {native!r} returned {len(fields)} values, "
             f"expected {len(_NATIVE_FIELDS)}: {_NATIVE_FIELDS}. This usually "
             f"means it was built against a different version of dratify.")
     (ok, reason, nsteps, rup, rat, dels, ignored, resolvents, failed_step,
      reached_empty) = fields
     if ok and not reached_empty:
         raise ValueError(
-            f"the native checker {sable_native!r} reported a valid refutation "
+            f"the native checker {native!r} reported a valid refutation "
             f"that never derived the empty clause. Those cannot both be true, "
             f"so its result is not trustworthy.")
 

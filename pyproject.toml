@@ -1,5 +1,7 @@
 [build-system]
-requires = ["setuptools>=68"]
+# 77 is the first release that understands the PEP 639 `license`
+# expression and `license-files` below.
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -33,6 +35,9 @@ dependencies = []
 [project.urls]
 Homepage = "https://github.com/carlok/dratify"
 Source = "https://github.com/carlok/dratify"
+Issues = "https://github.com/carlok/dratify/issues"
+Changelog = "https://github.com/carlok/dratify/blob/main/CHANGELOG.md"
+Security = "https://github.com/carlok/dratify/blob/main/SECURITY.md"
 
 [tool.setuptools.packages.find]
 where = ["src"]

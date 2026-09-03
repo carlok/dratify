@@ -5,3 +5,8 @@ build/
 *.egg-info/
 rust/target/
 .venv/
+
+# Fetched SATLIB instances and generated benchmark output: a cache, and not
+# ours to redistribute. Regenerate with bench/repro.py.
+bench/instances/
+bench/results.json

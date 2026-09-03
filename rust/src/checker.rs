@@ -4,11 +4,12 @@
 //!
 //! # Why this exists
 //!
-//! `sable/proof.py` is correct and is the reference, but it had become the
-//! slowest stage of any unsatisfiable run: **26x the solve time** on php(9,8),
-//! and the ratio grows with instance size. Verification that expensive is
-//! verification people switch off with a flag, which defeats the point of a
-//! project whose premise is that every answer carries a checkable certificate.
+//! The Python checker in `dratify/proof.py` is correct and is the reference,
+//! but on a large proof it is slow enough to be the dominant cost of verifying
+//! a solver's answer, and the ratio grows with proof size. Verification that
+//! expensive is verification people switch off with a flag, which defeats the
+//! point of shipping a certificate at all. See `bench/` for the current
+//! measurements and how to reproduce them.
 //!
 //! # Why the Python one stays
 //!

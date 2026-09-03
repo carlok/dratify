@@ -2,18 +2,22 @@
 # Copyright (c) 2026 Carlo Perassi. Licensed under the Apache License 2.0.
 """Literal and truth-value representation.
 
-SABLE uses the standard "doubled index" literal encoding found in MiniSat,
-Glucose and CaDiCaL:
+This package uses the standard "doubled index" literal encoding found in
+MiniSat, Glucose and CaDiCaL:
 
     variable v          0-based integer in [0, nvars)
     positive literal    2*v
     negative literal    2*v + 1
 
+Note the 0-based variable.  DIMACS numbers variables from 1, so the DIMACS
+variable ``d`` is the internal variable ``d - 1``, and its positive literal is
+``2*(d - 1)``.  Getting this wrong is the most common error when working with
+this code; :func:`from_dimacs` is the only place the conversion belongs.
+
 The encoding makes negation a single XOR (``lit ^ 1``), makes the variable a
 single shift (``lit >> 1``) and lets every per-literal table be a flat array of
-length ``2 * nvars`` indexed directly by the literal.  This is why the solver
-never has to branch on the sign of a literal in the propagation inner loop,
-which is where roughly 80% of a CDCL solver's time is spent.
+length ``2 * nvars`` indexed directly by the literal.  Nothing has to branch on
+the sign of a literal while walking a clause.
 
 Truth values are represented by the three-valued domain
 
@@ -22,15 +26,15 @@ Truth values are represented by the three-valued domain
     F = 2   false
 
 stored in a ``bytearray`` of length ``2 * nvars``.  Both a literal and its
-negation get an entry, kept complementary at all times by
-:meth:`sable.solver.Solver._assign`.  Reading ``val[lit]`` is then a single
-array index with no sign test.  ``flip(x)`` maps T<->F and leaves U alone.
+negation get an entry, kept complementary at all times by whatever is doing the
+assigning -- here, unit propagation inside :mod:`dratify.proof`.  Reading
+``val[lit]`` is then a single array index with no sign test.  ``flip(x)`` maps
+T<->F and leaves U alone.
 
-DIMACS literals (the signed non-zero integers used by the standard file
-format, where variables are 1-based) are converted at the I/O boundary only;
-nothing inside the solver ever sees a signed literal.
+DIMACS literals (the signed non-zero integers used by the standard file format,
+where variables are 1-based) are converted at the I/O boundary only; nothing
+inside the checker ever sees a signed literal.
 """
-
 from __future__ import annotations
 
 __all__ = [
