@@ -21,7 +21,7 @@ Two engines, and that is the point
 ----------------------------------
 The pure-Python checker has zero dependencies and runs anywhere Python does.
 The optional Rust accelerator (``pip install "cdclkit[native]"``, which
-registers itself here -- there is no ``dratify[native]`` extra) is 12-18x
+registers itself here -- there is no ``dratify[native]`` extra) is roughly 15x
 faster. Neither is the "real" one: proof checking is the one domain where two
 independent implementations agreeing *is* the evidence, and these two have been
 differentially tested against each other, on acceptances and on rejections.

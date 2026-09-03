@@ -56,7 +56,7 @@ already embeds the crate can supply an implementation. Today that is
 pip install "cdclkit[native]"    # brings wheels that register with dratify
 ```
 
-After that, `engine="auto"` uses the Rust checker (12-18x faster; see Speed)
+After that, `engine="auto"` uses the Rust checker (~15x faster; see Speed)
 with no further configuration.
 
 ## Why you would want this
@@ -106,7 +106,7 @@ Proof checking is the one domain where two independent implementations agreeing
 | | |
 |---|---|
 | **Pure Python** | zero dependencies, runs anywhere Python does |
-| **Rust** ([crate](https://crates.io/crates/dratify)) | 12-18x faster; reachable from Python via `register_native()` |
+| **Rust** ([crate](https://crates.io/crates/dratify)) | ~15x faster; reachable from Python via `register_native()` |
 
 Neither is the "real" one. They have been differentially tested against each
 other on acceptances *and* on rejections, and they agree.
@@ -141,14 +141,22 @@ Measured on Darwin arm64, Python 3.14, proofs from CaDiCaL and kissat:
 
 | proof | steps | pure Python | Rust | Rust vs Python | drat-trim |
 |---|---|---|---|---|---|
-| uuf100-01 (cadical) | 671 | 0.010s | 0.001s | 13.7x | 0.034s |
-| php(8,7) (cadical) | 13,001 | 0.252s | 0.020s | 12.5x | 0.047s |
-| php(9,8) (cadical) | 109,179 | 6.48s | 0.41s | 15.7x | 0.33s |
-| uuf250-01 (kissat) | 251,243 | 43.9s | 2.63s | 16.7x | 1.25s |
-| php(10,9) (cadical) | 856,267 | 132.0s | 7.53s | 17.5x | 3.92s |
+| uuf100-01 (cadical) | 671 | 0.010s | 0.001s | 11.4x | 0.032s |
+| php(8,7) (cadical) | 13,001 | 0.258s | 0.020s | 12.8x | 0.048s |
+| php(9,8) (cadical) | 109,179 | 7.00s | 0.44s | 15.9x | 0.38s |
+| uuf250-01 (kissat) | 251,243 | 63.1s | 2.92s | 21.6x | 1.37s |
+| php(10,9) (cadical) | 856,267 | 148.0s | 8.24s | 18.0x | 4.30s |
 
-Across all 12 measurements the Rust engine is **12x to 18x** over pure Python,
-geometric mean 14.7x, and the ratio grows with proof size.
+Across all 12 measurements the Rust engine's geometric mean is **about 15x**
+over pure Python, and the ratio grows with proof size.
+
+**Read the per-instance numbers as a range, not as values.** Two runs of the
+script on this machine gave geometric means of 14.7x and 14.9x — stable — while
+individual ratios moved between 11x and 22x, one of them by a third. The
+absolute times are worse: `uuf250-01` took 43.9s of pure Python in one run and
+63.1s in another, because the second shared the laptop with a compile. Run
+`repro.py` on an otherwise idle machine, and treat the geometric mean as the
+figure and any single row as an illustration.
 
 Against `drat-trim` the pattern is the one forward checking implies: Rust wins
 by 20-50x on small proofs, where `drat-trim` pays process startup and cannot be

@@ -27,6 +27,12 @@ Usage
 Python) and never a specific multiple, because shared runners are too noisy for
 a ratio to mean anything.
 
+The same caution applies locally. `--repeats` takes the best of N, which
+removes some noise and not all of it: two runs here produced the same geometric
+mean to within 0.2x while individual ratios moved by a third, because one run
+shared the machine with a compile. Run this alone -- under `caffeinate -i` on
+macOS -- and quote the geometric mean rather than a single row.
+
 Requirements
 ------------
 
