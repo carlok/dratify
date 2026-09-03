@@ -50,7 +50,7 @@ from .proof import (
 from .cnf import parse_dimacs, parse_dimacs_file, write_dimacs
 from . import _nativeinfo
 
-__version__ = "0.1.4"
+__version__ = "0.1.5"
 
 __all__ = [
     "CNF",

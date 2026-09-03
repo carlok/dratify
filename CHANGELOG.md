@@ -12,6 +12,30 @@ crate. The two are released together and are meant to be a matching pair; from
 
 ## [Unreleased]
 
+## [0.1.5] — 2026-09-03
+
+Documentation only; no behaviour change. 0.1.4 published a speed range that a
+second run of its own benchmark script contradicted.
+
+### Fixed
+
+- **The Rust-vs-Python figure was a single-sample range.** 0.1.4 said "12x to
+  18x". A second run of `bench/repro.py` on the same machine gave 11.4x to
+  21.6x. The geometric mean was stable across both (14.7x and 14.9x); the
+  individual ratios were not, and `uuf250-01` took 43.9s of pure Python in one
+  run against 63.1s in the other, the second having shared the machine with a
+  compile.
+
+  The README now leads with the geometric mean — **about 15x** — states the
+  observed spread as a spread, and says why a single row is an illustration
+  rather than a measurement. `bench/repro.py` repeats the warning where someone
+  about to run it will see it: run it alone, under `caffeinate -i` on macOS,
+  and quote the mean.
+
+  This is the rule the sibling project's release runbook already stated, and
+  the script that exists to stop unreproducible numbers being published was the
+  thing that published one.
+
 ## [0.1.4] — 2026-09-03
 
 Nothing in the checker's behaviour changed. What changed is that the claims
@@ -162,7 +186,8 @@ Initial release: a DRAT/DRUP proof checker that installs anywhere.
   same rules.
 - Tokenless publishing to both registries via Trusted Publishing.
 
-[Unreleased]: https://github.com/carlok/dratify/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/carlok/dratify/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/carlok/dratify/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/carlok/dratify/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/carlok/dratify/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/carlok/dratify/compare/v0.1.1...v0.1.2
