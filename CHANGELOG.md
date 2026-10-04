@@ -12,6 +12,37 @@ crate. The two are released together and are meant to be a matching pair; from
 
 ## [Unreleased]
 
+### Fixed
+
+- **The README's PySAT example failed on SATLIB files, on its first line.**
+  It loaded the formula with `pysat.formula.CNF(from_file=...)`, which stops at
+  the `%` line SATLIB benchmark files end with: `ValueError: invalid integer
+  token`. The checker never ran. Nothing executed the example, so it read that
+  way through five releases. It now parses with this package, which reads
+  those files, and hands PySAT the clauses. Run verbatim on `uuf100-01` and
+  `uuf250-01` as distributed, both print `True`.
+- The README now says which PySAT solvers produce checkable proofs. On 50
+  SATLIB `uuf100` instances with python-sat 1.9.dev15, Glucose 4.2, Glucose 4
+  and Lingeling verified 50 of 50; **CaDiCaL 1.5.3 verified 7 of 50**, the rest
+  never deriving the empty clause. `drat-trim` agreed on all 12 instances
+  cross-checked.
+
+### Added
+
+- `tests/test_readme.py` runs every Python example in the README and checks it
+  prints what its comments promise. A CI job installs `python-sat` and fails if
+  the PySAT example's test skipped.
+- CI runs Python 3.15 (currently a release candidate).
+
+### Security
+
+- **A branch could publish a release.** `release.yml` also accepted
+  `workflow_dispatch`, which runs the workflow from whichever branch is
+  selected and skipped the tag-must-match-version check. The `pypi` and
+  `crates` environments had no ref policy. Both are now restricted to `v*` tags
+  in the repository settings, the dispatch trigger is gone, and the build job
+  fails outright for any ref that is not a tag.
+
 ## [0.1.5] — 2026-09-03
 
 Documentation only; no behaviour change. 0.1.4 published a speed range that a

@@ -83,20 +83,35 @@ solver crate. If you never look at UNSAT answers, you do not need this at all.
 ## Check a proof from PySAT
 
 ```python
-from pysat.formula import CNF as PyCNF
 from pysat.solvers import Glucose42
-from dratify import parse_dimacs, check_proof
+from dratify import parse_dimacs, check_proof, to_dimacs
 
-cnf = PyCNF(from_file="problem.cnf")
-with Glucose42(bootstrap_with=cnf, with_proof=True) as s:
+formula = parse_dimacs(open("problem.cnf").read())
+clauses = [[to_dimacs(lit) for lit in c] for c in formula.clauses]
+
+with Glucose42(bootstrap_with=clauses, with_proof=True) as s:
     assert not s.solve()
     proof = s.get_proof()
 
-result = check_proof(parse_dimacs(cnf.to_dimacs()), "\n".join(proof))
+result = check_proof(formula, "\n".join(proof))
 print(result.ok)          # True -- the refutation is genuine
 ```
 
 No subprocess, no compiler, no temporary files.
+
+The file is parsed here rather than by PySAT on purpose. SATLIB's benchmark
+files end with a `%` line, and `pysat.formula.CNF(from_file=...)` stops on it
+with `ValueError: invalid integer token`; this parser reads them.
+
+**Which PySAT solvers produce checkable proofs.** On 50 SATLIB `uuf100`
+instances with python-sat 1.9.dev15: Glucose 4.2, Glucose 4 and Lingeling
+verified 50 of 50. **CaDiCaL 1.5.3 (`Cadical153`) verified 7 of 50**; the other
+43 are well-formed step by step but never derive the empty clause, so they are
+not refutations. `drat-trim` agrees on every one of the 12 we cross-checked. If
+you swap the solver above and `result.ok` turns `False`, that is the checker
+working. The standalone `cadical` binary does not show this, so the fault is
+somewhere on PySAT's path to CaDiCaL — whether in the binding or in the
+bundled 1.5.3 is not yet established.
 
 ## Two engines, and that is the point
 
@@ -111,6 +126,7 @@ Proof checking is the one domain where two independent implementations agreeing
 Neither is the "real" one. They have been differentially tested against each
 other on acceptances *and* on rejections, and they agree.
 
+<!-- readme-test: skip -- a signature listing, not a program -->
 ```python
 check_proof(formula, proof, engine="python")   # always available
 check_proof(formula, proof, engine="native")   # once an implementation is registered

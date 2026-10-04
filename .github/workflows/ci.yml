@@ -14,13 +14,16 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-        python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        # 3.15 is a release candidate. It is here so its final release finds
+        # nothing new; allow-prereleases is what lets setup-python resolve it.
+        python: ["3.10", "3.11", "3.12", "3.13", "3.14", "3.15"]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python }}
+          allow-prereleases: true
       # no pip install: the package has zero dependencies and that is the
       # property under test as much as the checker itself
       - run: PYTHONPATH=src python -m unittest discover -s tests -v
@@ -58,6 +61,29 @@ jobs:
           grep -q "^OK" /tmp/diff.log
           if grep -qE "skipped|no native checker" /tmp/diff.log; then
             echo "::error::the differential tests skipped -- the agreement claim is untested"
+            exit 1
+          fi
+
+  # The README's PySAT example is the first code most visitors copy, and it
+  # was broken for SATLIB files through five releases because nothing ran it.
+  # tests/test_readme.py runs it, but only where python-sat is installed, so
+  # this job installs it and fails if the test skipped anyway.
+  readme-pysat:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      # PySAT publishes only dev versions, so this is exactly what a visitor
+      # running `pip install python-sat` gets.
+      - run: pip install python-sat
+      - name: the README examples, PySAT included
+        run: |
+          PYTHONPATH=src python -m unittest tests.test_readme -v 2>&1 | tee /tmp/readme.log
+          grep -q "^OK" /tmp/readme.log
+          if grep -q "skipped" /tmp/readme.log; then
+            echo "::error::the PySAT README test skipped -- the example is unchecked"
             exit 1
           fi
 

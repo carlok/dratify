@@ -18,6 +18,28 @@ Publishing is automated. Pushing a `v*` tag runs
 Both registries use **Trusted Publishing** over GitHub OIDC, through the `pypi`
 and `crates` environments. There is no token anywhere and nothing to rotate.
 
+**Only a `v*` tag can publish.** Two things enforce it, and they guard against
+different failures:
+
+- The `pypi` and `crates` environments accept deployments from refs matching
+  the tag pattern `v*` and nothing else (Settings → Environments). This is the
+  one control a branch cannot change, because it lives outside the repository.
+- `release.yml` triggers on tags only, and its build job fails outright for any
+  other ref.
+
+There used to be a `workflow_dispatch` trigger as well. It ran the workflow file
+*from whichever branch was selected* and skipped the version check, so a branch
+could publish under any version it declared. It is gone.
+
+The registries should also require the environment. In PyPI → dratify →
+Publishing and crates.io → dratify → Trusted Publishing, the trusted publisher
+should name environment `pypi` / `crates` respectively. Otherwise the rule
+above protects the environment but does not bind the registry to it.
+
+Every file PyPI serves carries a PEP 740 attestation tying it to this
+repository, `release.yml` and the `pypi` environment. The publish action
+generates them; there is nothing to configure.
+
 crates.io required one manual `cargo publish` before Trusted Publishing could
 be configured. That is done; it is not needed again.
 
@@ -73,7 +95,12 @@ gh run watch $(gh run list -w release -L1 --json databaseId -q '.[0].databaseId'
 
 If the `build` job fails on the version check, the tag names a version the tree
 does not declare. Delete the tag, fix the version, tag again — do not re-run
-the job. The PyPI step sets `skip-existing`, so a re-run of the *same* release
+the job.
+
+If a **publish** job fails for a reason outside the tree (an index outage, a
+network error), open the tag's run and use **Re-run failed jobs**. That keeps
+the tag ref, so the environment rule and the version check both still apply.
+There is deliberately no way to start a release by hand. The PyPI step sets `skip-existing`, so a re-run of the *same* release
 is safe, and a forgotten version bump would otherwise publish nothing while
 reporting success. That is what the version check is for.
 
