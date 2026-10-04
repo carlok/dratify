@@ -110,7 +110,7 @@ CaDiCaL that PySAT ships (`Cadical103`, `Cadical153`, `Cadical195`, `Cadical300`
 writes its proof through a C `FILE*` that `get_proof()` reads before it has been
 flushed, so the end of the proof, usually including the empty clause, is still
 in a buffer. On 50 SATLIB `uuf100` instances with python-sat 1.9.dev15 on macOS,
-4 to 8 of 50 verify as shipped and 49 to 50 of 50 after a flush. `drat-trim`
+4 to 8 of 50 verify as shipped and all 50 after a flush. `drat-trim`
 agrees. CaDiCaL itself is not at fault: the same version built standalone
 writes proofs that verify. Glucose and Lingeling write text proofs, which line
 buffering flushes, and verify 50 of 50; on Windows that buffering is compiled

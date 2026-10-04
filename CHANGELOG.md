@@ -69,7 +69,9 @@ verify. One of them is a soundness hole; upgrade.
   proofs that do not verify. It is PySAT's binding, not CaDiCaL: every CaDiCaL
   PySAT ships (`Cadical103`, `153`, `195`, `300`) writes binary DRAT into a
   stream `get_proof()` reads before it is flushed. 4-8 of 50 `uuf100` proofs
-  verify as shipped, 49-50 of 50 after `fflush`. The README gives the one-line
+  verify as shipped, all 50 after `fflush`, for every one of the four. (A
+  first count said 49 for `Cadical103`; that last proof was the root-unit bug
+  above, in this checker.) The README gives the one-line
   workaround as a runnable example, and CI runs it on Linux. 0.1.6 had said the
   cause was not established and named only `Cadical153`.
 
