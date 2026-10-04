@@ -17,10 +17,11 @@ pip install dratify              # pure Python, zero dependencies
 ```
 
 ```python
+from pathlib import Path
 from dratify import parse_dimacs, check_proof
 
-formula = parse_dimacs(open("problem.cnf").read())
-result = check_proof(formula, open("proof.drat").read())
+formula = parse_dimacs(Path("problem.cnf").read_text())
+result = check_proof(formula, Path("proof.drat").read_text())
 
 print(result.ok)              # True  -- the refutation is genuine
 print(result.reached_empty)   # True  -- the empty clause was derived
@@ -83,10 +84,11 @@ solver crate. If you never look at UNSAT answers, you do not need this at all.
 ## Check a proof from PySAT
 
 ```python
+from pathlib import Path
 from pysat.solvers import Glucose42
 from dratify import parse_dimacs, check_proof, to_dimacs
 
-formula = parse_dimacs(open("problem.cnf").read())
+formula = parse_dimacs(Path("problem.cnf").read_text())
 clauses = [[to_dimacs(lit) for lit in c] for c in formula.clauses]
 
 with Glucose42(bootstrap_with=clauses, with_proof=True) as s:

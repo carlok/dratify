@@ -12,6 +12,11 @@ crate. The two are released together and are meant to be a matching pair; from
 
 ## [Unreleased]
 
+## [0.1.6] — 2026-10-04
+
+The checker is unchanged. The PySAT example on the package page was broken for
+SATLIB files, and the release pipeline would publish from a branch.
+
 ### Fixed
 
 - **The README's PySAT example failed on SATLIB files, on its first line.**
@@ -26,6 +31,8 @@ crate. The two are released together and are meant to be a matching pair; from
   and Lingeling verified 50 of 50; **CaDiCaL 1.5.3 verified 7 of 50**, the rest
   never deriving the empty clause. `drat-trim` agreed on all 12 instances
   cross-checked.
+- The README examples read their files with `Path.read_text()` instead of
+  `open(...).read()`, which left the handle open and warned under `-W error`.
 
 ### Added
 
@@ -217,7 +224,8 @@ Initial release: a DRAT/DRUP proof checker that installs anywhere.
   same rules.
 - Tokenless publishing to both registries via Trusted Publishing.
 
-[Unreleased]: https://github.com/carlok/dratify/compare/v0.1.5...HEAD
+[Unreleased]: https://github.com/carlok/dratify/compare/v0.1.6...HEAD
+[0.1.6]: https://github.com/carlok/dratify/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/carlok/dratify/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/carlok/dratify/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/carlok/dratify/compare/v0.1.2...v0.1.3
