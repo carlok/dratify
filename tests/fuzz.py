@@ -23,6 +23,13 @@ Three properties, each a separate failure mode:
    clause is not a refutation, and accepting one is the failure that matters
    most -- it is how a truncated proof passes for a valid one.
 
+4. **Both agree with a checker that shares nothing with them.** Properties 2
+   and 3 compare the two implementations, and both shared a bug: a lemma that
+   was unit at the root when added did not extend the root assignment, so
+   valid proofs were rejected. `tests/naive.py` recomputes unit propagation
+   from scratch for every lemma; this compares against it on proofs aimed at
+   that case. RUP only and no deletions, the subset with one meaning.
+
 Deterministic given a seed, so a failure is reproducible:
 
     python tests/fuzz.py --seed 12345
@@ -147,6 +154,39 @@ def fuzz_checkers(rng: random.Random, rounds: int, impl) -> list[str]:
     return failures
 
 
+def fuzz_against_reference(rng: random.Random, rounds: int, impl) -> list[str]:
+    """Property 4: both checkers against tests/naive.py."""
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+    from tests import naive
+    from tests.test_root_units import TestAgainstTheNaiveReference as gen
+
+    engines = ["python"] + (["native"] if impl is not None else [])
+    failures = []
+    for i in range(rounds):
+        nvars = rng.randrange(3, 10)
+        formula = []
+        for _ in range(rng.randrange(2, 3 * nvars)):
+            k = rng.choice((1, 2, 2, 3, 3, 4))
+            vs = rng.sample(range(1, nvars + 1), min(k, nvars))
+            formula.append(tuple(v if rng.random() < .5 else -v for v in vs))
+        lemmas = gen._proof(gen, rng, nvars, formula)
+        want = naive.check(formula, lemmas)
+        text = f"p cnf {nvars} {len(formula)}\n" + "".join(
+            " ".join(map(str, c)) + " 0\n" for c in formula)
+        steps = [("a", tuple(((abs(l) - 1) << 1) | (l < 0) for l in c))
+                 for c in lemmas]
+        for eng in engines:
+            r = check_proof(parse_dimacs(text), steps, check_rat=False,
+                            apply_deletions=False, engine=eng)
+            if (r.ok, r.failed_step) != want:
+                failures.append(
+                    f"round {i}: {eng} says ok={r.ok} failed_step="
+                    f"{r.failed_step}, the reference says {want}. "
+                    f"formula={formula} lemmas={lemmas}")
+                break
+    return failures
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--seed", type=int, default=None,
@@ -167,6 +207,8 @@ def main() -> int:
 
     failures = fuzz_parsers(random.Random(seed), args.rounds)
     failures += fuzz_checkers(random.Random(seed + 1), args.rounds, impl)
+    failures += fuzz_against_reference(random.Random(seed + 2),
+                                       max(1, args.rounds // 4), impl)
 
     if failures:
         print(f"\n{len(failures)} failure(s):\n", file=sys.stderr)

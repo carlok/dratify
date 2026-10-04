@@ -234,14 +234,10 @@ def parse_proof(text: str) -> list[tuple[str, tuple[int, ...]]]:
             if d == 0:
                 terminated = True
                 break
-            # A literal sizes the propagator's arrays the same way the CNF
-            # header does, and a proof may legitimately introduce fresh
-            # variables (that is what RAT is for) -- so bound it by what the
-            # text could describe rather than by the formula.
-            if abs(d) > len(text):
-                raise ValueError(
-                    f"proof line {lineno}: literal {d} names a variable this "
-                    f"{len(text)}-character proof cannot contain")
+            # No bound here. Parsing allocates nothing per variable; only the
+            # checker does, and only it knows the formula. Bounding by this
+            # text's length refused `6 0` for a seven-variable formula --
+            # `check_proof` bounds against formula *and* proof instead.
             lits.append(from_dimacs(d))
         if not terminated and lits:
             raise ValueError(f"unterminated proof line: {raw!r}")
@@ -462,10 +458,15 @@ class DRATChecker:
         self.formula = formula
         self.check_rat = check_rat
         self.apply_deletions = apply_deletions
-        self.prop = _Prop(formula.nvars)
+        # Sized by the variables the clauses actually use, not by the header:
+        # a header may declare far more than a formula mentions, and both
+        # arrays grow on demand (`_grow`) for anything a later clause or proof
+        # step introduces. A one-line `p cnf 1000000 0` therefore costs nothing.
+        used = max(((l >> 1) + 1 for c in formula.clauses for l in c), default=0)
+        self.prop = _Prop(used)
         # clause key -> list of live handles, for deletion lookup
         self._index: dict[tuple[int, ...], list[int]] = {}
-        self._occ: list[list[int]] = [[] for _ in range(2 * formula.nvars)]
+        self._occ: list[list[int]] = [[] for _ in range(2 * used)]
         self.result = CheckResult()
         self._root_conflict = False
         for c in formula.clauses:
@@ -609,13 +610,43 @@ class DRATChecker:
         if not lits:
             r.reached_empty = True
             return True
-        self._insert(list(lits))
-        if len(lits) == 1:
-            if not self.prop.assign(lits[0]):
-                self._root_conflict = True
-            elif self.prop.propagate(len(self.prop.trail) - 1):
-                self._root_conflict = True
+        self._add_lemma(lits)
         return True
+
+    def _add_lemma(self, lits: Sequence[int]) -> None:
+        """Store a verified lemma and bring the root assignment up to date.
+
+        The root assignment is propagated once and never revisited, so a new
+        clause has to be reconciled with it on arrival. Attaching it watching
+        its first two literals regardless of their values -- as this did --
+        loses a lemma that is already unit at the root: its last literal
+        should become true there and propagate, and nothing ever made it so.
+        Later lemmas that depended on that implication were rejected. Found in
+        a CaDiCaL proof that drat-trim verifies; tests/test_root_units.py.
+
+        The fix is the usual one for adding a clause under a non-empty
+        assignment: watch literals that are not false, and if at most one
+        is, the clause is unit (or falsified) at the root, so act on it now.
+        Only the stored copy is reordered; the step's own literal order, which
+        fixes the RAT pivot, was used before this point and is untouched.
+        """
+        val = self.prop.val
+        if any(val[l] == T for l in lits):
+            self._insert(list(lits))       # satisfied at the root: inert
+            return
+        free = [l for l in lits if val[l] != F]
+        stored = free + [l for l in lits if val[l] == F]
+        self._insert(stored)
+        if len(free) >= 2:
+            return
+        if not free:
+            # falsified at the root: the clause set is now refuted outright
+            self._root_conflict = True
+        elif self.prop.assign(free[0]):
+            if self.prop.propagate(len(self.prop.trail) - 1):
+                self._root_conflict = True
+        else:
+            self._root_conflict = True
 
     def check(self, steps: Iterable[tuple[str, Sequence[int]]]) -> CheckResult:
         r = self.result
@@ -639,6 +670,52 @@ class DRATChecker:
                 "every step verified, but the proof never derives the empty clause"
             )
         return r
+
+
+def _validate_steps(formula: CNF, steps: list, text_len: int) -> None:
+    """Refuse steps the checkers cannot interpret safely, before either runs.
+
+    Two holes, both on the paths that skip the text parser (a list of steps,
+    a `MemoryProof`):
+
+    * **A negative literal bought a refutation.** Internal literals are
+      non-negative. The pure-Python checker indexed its value array with a
+      negative one -- Python counts from the end -- and accepted refutations
+      of satisfiable formulas: ``[("a", (-5,)), ("a", ())]`` against
+      ``1 2 / -2 3`` returned ok=True. Passing DIMACS integers here is the
+      mistake AGENTS.md calls the most common.
+    * **A huge literal sized the arrays.** The text path was bounded, wrongly
+      (by the proof's length, which refused valid short proofs); lists were
+      not bounded at all, so one literal could ask for 10^11 variables.
+
+    The bound: every formula variable is allowed, and beyond that a proof can
+    only introduce variables it mentions, so the largest index is at most the
+    formula's count plus the number of literal occurrences -- or the text's
+    length, which is never smaller and keeps every proof the old text bound
+    accepted.
+    """
+    occurrences = 0
+    for step in steps:
+        if not (isinstance(step, tuple) and len(step) == 2):
+            raise ValueError(
+                f"a proof step must be (kind, literals); got {step!r}")
+        occurrences += len(step[1])
+    limit = formula.nvars + max(occurrences, text_len)
+    for i, (kind, lits) in enumerate(steps, 1):
+        if kind not in ("a", "d"):
+            raise ValueError(
+                f"proof step {i}: kind must be 'a' or 'd', got {kind!r}")
+        for lit in lits:
+            if not isinstance(lit, int) or isinstance(lit, bool) or lit < 0:
+                raise ValueError(
+                    f"proof step {i}: {lit!r} is not an internal literal. "
+                    f"Internal literals are non-negative integers; use "
+                    f"lits.from_dimacs for signed DIMACS input.")
+            if (lit >> 1) + 1 > limit:
+                raise ValueError(
+                    f"proof step {i}: literal {to_dimacs(lit)} names variable "
+                    f"{(lit >> 1) + 1}, but a {formula.nvars}-variable formula "
+                    f"and this proof can account for at most {limit}")
 
 
 def check_proof(
@@ -669,6 +746,7 @@ def check_proof(
     else:
         steps = proof
     steps = list(steps)
+    _validate_steps(formula, steps, len(proof) if isinstance(proof, str) else 0)
 
     if engine not in ("auto", "native", "python"):
         raise ValueError(f"unknown checker engine {engine!r}")

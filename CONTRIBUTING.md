@@ -17,9 +17,14 @@ The optional Rust checker is published as part of `cdclkit-native`, not under
 this name — installing a proof checker should never require a toolchain:
 
 ```bash
-make native      # pip install cdclkit-native
+make native      # build it from this checkout's rust/ (needs cargo)
 make test-native # the suite with it present; fails if it is absent
 ```
+
+`make native` compiles cdclkit-native against your working copy of `rust/`.
+Installing the published wheel instead (`make native-released`) would test the
+last *released* crate, and a change to `rust/` would never be compared with the
+Python checker. CI builds it the same way.
 
 ## What a change needs
 

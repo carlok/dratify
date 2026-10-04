@@ -16,8 +16,9 @@ import io
 import time
 import unittest
 
-from dratify import (CheckResult, ProofWriter, check_proof, parse_dimacs,
-                     parse_proof, register_native, native_implementation)
+from dratify import (CheckResult, MemoryProof, ProofWriter, check_proof,
+                     native_available, native_implementation, parse_dimacs,
+                     parse_proof, register_native)
 
 
 class TestHostileSizes(unittest.TestCase):
@@ -41,11 +42,33 @@ class TestHostileSizes(unittest.TestCase):
         self.assertIn("line 1", str(cm.exception))
 
     def test_a_proof_literal_larger_than_the_file_is_rejected(self):
+        """Checked where the formula is known: the parser allocates nothing.
+
+        This used to live in `parse_proof` and bounded literals by the proof's
+        length, which refused `6 0` -- a valid four-character proof -- for a
+        seven-variable formula. See tests/test_root_units.py.
+        """
         t0 = time.perf_counter()
         with self.assertRaises(ValueError) as cm:
-            parse_proof("99999999999 0\n")
+            check_proof(parse_dimacs("p cnf 1 0\n"), "99999999999 0\n")
         self.assertLess(time.perf_counter() - t0, 1.0)
         self.assertIn("99999999999", str(cm.exception))
+
+    def test_a_header_may_declare_more_variables_than_it_uses(self):
+        """Real instances do. The first guard refused this as malformed."""
+        f = parse_dimacs("p cnf 1000 2\n999 0\n-999 0\n")
+        self.assertEqual(f.nvars, 1000)
+        self.assertTrue(check_proof(f, "0\n").ok)
+
+    def test_the_floor_is_cheap_to_accept_and_the_line_above_it_holds(self):
+        from dratify.cnf import HEADER_VARS_FLOOR
+
+        t0 = time.perf_counter()
+        f = parse_dimacs(f"p cnf {HEADER_VARS_FLOOR} 1\n1 0\n")
+        check_proof(f, "-1 0\n")       # the checker sizes by use, not header
+        self.assertLess(time.perf_counter() - t0, 1.0)
+        with self.assertRaises(ValueError):
+            parse_dimacs(f"p cnf {HEADER_VARS_FLOOR + 1} 1\n1 0\n")
 
     def test_an_ordinary_formula_still_parses(self):
         """The bound must not reject anything real."""
@@ -161,6 +184,67 @@ class TestNativeCheckerContract(unittest.TestCase):
         register_native(None)
         self.assertIsNone(native_implementation())
 
+
+
+class TestStepListsAreValidated(unittest.TestCase):
+    """A list of steps reaches the checker without passing through a parser.
+
+    Internal literals are non-negative. Handing the pure-Python checker a list
+    with a negative one -- the DIMACS-versus-internal mix-up AGENTS.md calls the
+    most common error -- did not raise. Python indexed the value array from the
+    end, and the checker accepted refutations of *satisfiable* formulas:
+    `[("a", (-5,)), ("a", ())]` against `1 2 / -2 3` returned ok=True. The Rust
+    checker refused with a bare OverflowError. Nothing bounded a huge literal
+    in a list either, so either engine sized its arrays from it.
+    """
+
+    SAT = "p cnf 3 2\n1 2 0\n-2 3 0\n"
+
+    def _engines(self):
+        yield "python"
+        if native_available():
+            yield "native"
+
+    def test_a_negative_literal_cannot_buy_a_refutation(self):
+        f = parse_dimacs(self.SAT)
+        for eng in self._engines():
+            for bad in ([("a", (-5,)), ("a", ())],
+                        [("a", (-6, -4)), ("a", (-4,)), ("a", ())],
+                        [("d", (-1, -2)), ("a", ())]):
+                with self.subTest(engine=eng, proof=bad):
+                    with self.assertRaises(ValueError) as cm:
+                        check_proof(f, bad, engine=eng)
+                    self.assertIn("from_dimacs", str(cm.exception))
+
+    def test_a_memory_proof_is_validated_too(self):
+        m = MemoryProof()
+        m.add([-5])
+        m.add([])
+        with self.assertRaises(ValueError):
+            check_proof(parse_dimacs(self.SAT), m)
+
+    def test_a_huge_literal_in_a_list_is_refused_quickly(self):
+        f = parse_dimacs("p cnf 1 0\n")
+        for eng in self._engines():
+            with self.subTest(engine=eng):
+                t0 = time.perf_counter()
+                with self.assertRaises(ValueError):
+                    check_proof(f, [("a", (2 * 10 ** 11,)), ("a", ())],
+                                engine=eng)
+                self.assertLess(time.perf_counter() - t0, 1.0)
+
+    def test_an_unknown_step_kind_is_refused(self):
+        with self.assertRaises(ValueError):
+            check_proof(parse_dimacs(self.SAT), [("x", (0,)), ("a", ())])
+
+    def test_well_formed_lists_still_work(self):
+        f = parse_dimacs("p cnf 2 4\n1 2 0\n1 -2 0\n-1 2 0\n-1 -2 0\n")
+        m = MemoryProof()
+        m.add([0])          # internal 0 is DIMACS 1
+        m.add([])
+        for eng in self._engines():
+            with self.subTest(engine=eng):
+                self.assertTrue(check_proof(f, m, engine=eng).ok)
 
 if __name__ == "__main__":
     unittest.main()

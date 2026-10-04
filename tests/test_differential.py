@@ -63,9 +63,14 @@ class TestBothCheckersAgree(unittest.TestCase):
         self.assertIs(py.reached_empty, rs.reached_empty,
                       f"{label}: reached_empty differs")
         self.assertEqual(py.reason, rs.reason, f"{label}: reasons differ")
-        if py.ok:
-            self.assertEqual(py.rup_steps, rs.rup_steps, f"{label}: rup_steps")
-            self.assertEqual(py.rat_steps, rs.rat_steps, f"{label}: rat_steps")
+        # Every field, on rejections too. This compared step counts only for
+        # accepted proofs, so a divergence in how far RAT got before failing
+        # was invisible here; the fuzzer found one (see the test below).
+        for field in ("steps", "rup_steps", "rat_steps", "deletions",
+                      "ignored_deletions", "resolvents_checked",
+                      "failed_step", "failed_clause"):
+            self.assertEqual(getattr(py, field), getattr(rs, field),
+                             f"{label}: {field} differs")
         return py
 
     # -- acceptances -----------------------------------------------------
@@ -104,6 +109,20 @@ class TestBothCheckersAgree(unittest.TestCase):
         self.assertIsNotNone(r)
 
     # -- and a sweep, so this is not four hand-picked cases --------------
+
+    def test_rat_tries_resolvents_in_the_same_order_after_a_deletion(self):
+        """Same verdict, different `resolvents_checked`, until both kept order.
+
+        RAT stops at the first resolvent that is not RUP, so the order of a
+        literal's occurrence list decides how many it checks. Python removed
+        deleted clauses with `list.remove`; Rust used `swap_remove`, which
+        reorders. Found by tests/fuzz.py at round 6,631 of seed 1.
+        """
+        formula = "p cnf 2 3\n2 -1 0\n2 1 0\n2 0\n"
+        proof = ("d 2 -1 0\n1 0\n-2 0\n1 -2 0\nd -2 -1 0\nd -1 0\n"
+                 "d -2 0\n0\n-1 0\n2 1 0\n-1 -2 0\n0\n")
+        r = self._agree(formula, proof, "fuzz seed 1 round 6631")
+        self.assertFalse(r.ok)
 
     def test_random_formulas_and_random_candidate_steps(self):
         """Small random formulas with random proof steps.

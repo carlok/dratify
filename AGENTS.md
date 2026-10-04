@@ -22,6 +22,13 @@ two is exactly how a truncated proof gets accepted. `CheckResult` also carries
 takes a `MemoryProof`, a list of steps, or **proof text** — so handing it the
 contents of a `.drat` file works directly.
 
+**Prefer text.** A list of steps is `("a" | "d", literals)` with **internal**
+literals: non-negative, DIMACS `d` becomes `from_dimacs(d)`. Passing DIMACS
+integers there is the most common mistake, and before 0.1.7 the pure-Python
+checker did not notice: Python read the negative index from the end of an
+array, and refutations of satisfiable formulas were accepted. It raises
+`ValueError` now. Text goes through the parser, which converts for you.
+
 ## Engines
 
 `engine="python"` always works. `engine="native"` needs a registered

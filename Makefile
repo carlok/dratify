@@ -7,14 +7,15 @@
 PYTHON ?= python3
 export PYTHONPATH := src
 
-.PHONY: help test test-verbose test-native coverage fuzz native lint gate clean
+.PHONY: help test test-verbose test-native coverage fuzz native native-released lint gate clean
 
 help:
 	@echo "make test      -- run the full suite, no Rust and no install needed"
 	@echo "make test-native-- same, with a native checker installed (see below)"
 	@echo "make coverage  -- statement coverage via the stdlib trace module"
 	@echo "make fuzz      -- randomised differential run; SEED=n to reproduce"
-	@echo "make native    -- install cdclkit-native, which supplies the Rust checker"
+	@echo "make native    -- build the Rust checker from this checkout (needs cargo)"
+	@echo "make native-released -- install the published Rust checker instead"
 	@echo "make lint      -- cargo clippy and cargo test on the crate"
 	@echo "make gate      -- everything that must pass before a commit"
 
@@ -24,9 +25,14 @@ test:
 test-verbose:
 	$(PYTHON) -m unittest discover -s tests -v
 
-# The Rust checker is not published under this name: cdclkit-native embeds this
-# crate and registers itself, so a proof checker never needs a toolchain.
+# The Rust checker reaches Python through cdclkit-native, which embeds this
+# crate. `native` builds it against *this checkout's* rust/ (needs cargo), which
+# is what testing a change to the crate requires; `native-released` installs the
+# published wheel, which embeds the last released crate instead.
 native:
+	bash tests/build_native.sh
+
+native-released:
 	$(PYTHON) -m pip install cdclkit-native
 
 # Fails loudly if the comparison skipped. A differential test that silently

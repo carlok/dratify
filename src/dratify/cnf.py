@@ -36,6 +36,14 @@ __all__ = ["Clause", "CNF", "parse_dimacs", "parse_dimacs_file", "write_dimacs"]
 # --------------------------------------------------------------------------
 
 
+#: Declared variable counts up to this are accepted from any file, however
+#: short. Above it, the file must be at least as long as the count. A million
+#: variables is a few megabytes in a solver's arrays: affordable to accept
+#: from a hostile header, and above anything a real instance declares without
+#: also being large.
+HEADER_VARS_FLOOR = 1 << 20
+
+
 class Clause:
     """A clause, with two watched literals in ``lits[0]`` and ``lits[1]``.
 
@@ -285,15 +293,21 @@ def parse_dimacs(text: str, strict: bool = False) -> CNF:
             except ValueError:
                 raise ValueError(
                     f"line {lineno}: malformed header {line!r}") from None
-            # A header is untrusted input, and `nvars` sizes the checker's
-            # watch and value arrays -- `p cnf 99999999999 0` is one line that
-            # asks for hundreds of gigabytes. Every variable the file really
-            # mentions needs at least one character to write, so a count larger
-            # than the whole text cannot describe this file.
-            if declared_vars < 0 or declared_vars > len(text):
+            # A header is untrusted input, and a consumer may size arrays by
+            # it -- cdclkit's solver does -- so `p cnf 99999999999 0`, one
+            # line, could ask for hundreds of gigabytes. But a header declares
+            # variables; it need not mention them, and real instances often
+            # declare far more than they use. The first version of this guard
+            # bounded the count by the text's length and so refused
+            # `p cnf 1000 2` with two short clauses. Hence a floor: any count up
+            # to HEADER_VARS_FLOOR is accepted, larger ones only from a file
+            # long enough to plausibly need them.
+            if declared_vars < 0 or declared_vars > max(len(text),
+                                                         HEADER_VARS_FLOOR):
                 raise ValueError(
-                    f"line {lineno}: header declares {declared_vars} variables, "
-                    f"which this {len(text)}-character input cannot contain")
+                    f"line {lineno}: header declares {declared_vars} variables; "
+                    f"a {len(text)}-character input may declare at most "
+                    f"{max(len(text), HEADER_VARS_FLOOR)}")
             if declared_clauses < 0:
                 raise ValueError(
                     f"line {lineno}: header declares {declared_clauses} clauses")

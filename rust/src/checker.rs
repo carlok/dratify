@@ -300,7 +300,13 @@ impl Checker {
             for l in st {
                 let o = &mut self.occ[l as usize];
                 if let Some(i) = o.iter().position(|&x| x == h) {
-                    o.swap_remove(i);
+                    // `remove`, not `swap_remove`: the order of this list is
+                    // the order RAT tries resolvents in, and it stops at the
+                    // first that fails. The Python checker preserves order, so
+                    // swapping made `resolvents_checked` differ between the two
+                    // after a deletion -- same verdict, different count. The
+                    // fuzzer found it at round 6,631 of seed 1.
+                    o.remove(i);
                 }
             }
         }
@@ -430,18 +436,54 @@ impl Checker {
             self.result.reached_empty = true;
             return true;
         }
-        self.insert(lits.to_vec());
-        if lits.len() == 1 {
-            if !self.prop.assign(lits[0]) {
-                self.root_conflict = true;
-            } else {
-                let from = self.prop.trail.len().saturating_sub(1);
-                if self.prop.propagate(from) {
+        self.add_lemma(lits);
+        true
+    }
+
+    /// Store a verified lemma and bring the root assignment up to date.
+    ///
+    /// The root assignment is propagated once and never revisited, so a new
+    /// clause has to be reconciled with it on arrival. Attaching it watching
+    /// its first two literals regardless of their values -- as this did, and
+    /// as the Python checker did -- loses a lemma that is already unit at the
+    /// root: its last literal should become true there and propagate, and
+    /// nothing made it so. Later lemmas that depended on it were rejected.
+    /// The two implementations shared the mistake, so comparing them could
+    /// not find it; a CaDiCaL proof that drat-trim verifies did.
+    ///
+    /// Watch literals that are not false; if at most one is, the clause is
+    /// unit (or falsified) at the root, so act on it now. Only the stored
+    /// copy is reordered: the step's own order fixed the RAT pivot already.
+    fn add_lemma(&mut self, lits: &[Lit]) {
+        if lits.iter().any(|&l| self.prop.val[l as usize] == T) {
+            self.insert(lits.to_vec()); // satisfied at the root: inert
+            return;
+        }
+        let mut stored: Vec<Lit> = lits
+            .iter()
+            .copied()
+            .filter(|&l| self.prop.val[l as usize] != F)
+            .collect();
+        let free = stored.len();
+        let first_free = stored.first().copied();
+        stored.extend(lits.iter().copied().filter(|&l| self.prop.val[l as usize] == F));
+        self.insert(stored);
+        if free >= 2 {
+            return;
+        }
+        match first_free {
+            None => self.root_conflict = true, // falsified at the root
+            Some(l) => {
+                if !self.prop.assign(l) {
                     self.root_conflict = true;
+                } else {
+                    let from = self.prop.trail.len() - 1;
+                    if self.prop.propagate(from) {
+                        self.root_conflict = true;
+                    }
                 }
             }
         }
-        true
     }
 
     pub fn check(&mut self, steps: &[(bool, Vec<Lit>)]) -> CheckResult {
@@ -477,6 +519,59 @@ impl Checker {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// DIMACS literal to internal: variable |d|-1, negated when d < 0.
+    fn d(x: i32) -> Lit {
+        (2 * (x.unsigned_abs() - 1) + u32::from(x < 0)) as Lit
+    }
+
+    /// 1 and 2 are false at the root; (1 2 3) is RUP and, once added, makes 3
+    /// true at the root, which yields 5 and then 6. Without it 6 is not RUP,
+    /// and (-6 7) stops 6 being accepted vacuously as RAT. Both checkers used
+    /// to reject the 6: the lemma was attached without reconciling it with
+    /// the root assignment. See tests/test_root_units.py on the Python side.
+    fn unit_at_root_formula(refutable: bool) -> Vec<Vec<Lit>> {
+        let mut f: Vec<Vec<Lit>> = [
+            vec![-1], vec![-2], vec![1, 2, 3, 4], vec![1, 2, 3, -4],
+            vec![-3, 5], vec![-3, -5, 6], vec![-6, 7],
+        ]
+        .iter()
+        .map(|c| c.iter().map(|&x| d(x)).collect())
+        .collect();
+        if refutable {
+            f.push(vec![d(-7)]);
+        }
+        f
+    }
+
+    #[test]
+    fn a_lemma_unit_at_the_root_extends_the_root_assignment() {
+        for order in [[1, 2, 3], [2, 1, 3], [3, 1, 2], [1, 3, 2], [3, 2, 1]] {
+            let lemma: Vec<Lit> = order.iter().map(|&x| d(x)).collect();
+            let steps = vec![(false, lemma), (false, vec![d(6)])];
+            let r = Checker::new(7, &unit_at_root_formula(false), true, true).check(&steps);
+            assert_eq!(r.failed_step, -1, "order {order:?}: {}", r.reason);
+            assert_eq!(r.rup_steps, 2, "order {order:?}: 6 must be RUP");
+        }
+    }
+
+    #[test]
+    fn and_the_refutation_built_on_it_goes_through() {
+        let steps = vec![
+            (false, vec![d(1), d(2), d(3)]),
+            (false, vec![d(6)]),
+            (false, vec![]),
+        ];
+        let r = Checker::new(7, &unit_at_root_formula(true), true, true).check(&steps);
+        assert!(r.ok, "{}", r.reason);
+    }
+
+    #[test]
+    fn without_the_unit_at_root_lemma_six_is_still_rejected() {
+        let r = Checker::new(7, &unit_at_root_formula(false), true, true)
+            .check(&[(false, vec![d(6)])]);
+        assert_eq!(r.failed_step, 1);
+    }
 
     #[test]
     fn refutes_a_formula_already_containing_the_empty_clause() {

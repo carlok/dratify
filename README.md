@@ -105,15 +105,37 @@ The file is parsed here rather than by PySAT on purpose. SATLIB's benchmark
 files end with a `%` line, and `pysat.formula.CNF(from_file=...)` stops on it
 with `ValueError: invalid integer token`; this parser reads them.
 
-**Which PySAT solvers produce checkable proofs.** On 50 SATLIB `uuf100`
-instances with python-sat 1.9.dev15: Glucose 4.2, Glucose 4 and Lingeling
-verified 50 of 50. **CaDiCaL 1.5.3 (`Cadical153`) verified 7 of 50**; the other
-43 are well-formed step by step but never derive the empty clause, so they are
-not refutations. `drat-trim` agrees on every one of the 12 we cross-checked. If
-you swap the solver above and `result.ok` turns `False`, that is the checker
-working. The standalone `cadical` binary does not show this, so the fault is
-somewhere on PySAT's path to CaDiCaL — whether in the binding or in the
-bundled 1.5.3 is not yet established.
+**PySAT's CaDiCaL proofs arrive truncated; flush before reading them.** Every
+CaDiCaL that PySAT ships (`Cadical103`, `Cadical153`, `Cadical195`, `Cadical300`)
+writes its proof through a C `FILE*` that `get_proof()` reads before it has been
+flushed, so the end of the proof, usually including the empty clause, is still
+in a buffer. On 50 SATLIB `uuf100` instances with python-sat 1.9.dev15 on macOS,
+4 to 8 of 50 verify as shipped and 49 to 50 of 50 after a flush. `drat-trim`
+agrees. CaDiCaL itself is not at fault: the same version built standalone
+writes proofs that verify. Glucose and Lingeling write text proofs, which line
+buffering flushes, and verify 50 of 50; on Windows that buffering is compiled
+out and every solver is affected ([pysathq/pysat#233](https://github.com/pysathq/pysat/issues/233)).
+Until PySAT flushes the file itself:
+
+```python
+import ctypes
+from pathlib import Path
+from pysat.solvers import Cadical195
+from dratify import parse_dimacs, check_proof, to_dimacs
+
+formula = parse_dimacs(Path("problem.cnf").read_text())
+clauses = [[to_dimacs(lit) for lit in c] for c in formula.clauses]
+
+with Cadical195(bootstrap_with=clauses, with_proof=True) as s:
+    assert not s.solve()
+    ctypes.CDLL(None).fflush(None)   # PySAT reads the proof before flushing it
+    proof = s.get_proof()
+
+result = check_proof(formula, "\n".join(proof))
+print(result.ok)          # True -- with the flush; often False without it
+```
+
+On Windows the flush is `ctypes.cdll.ucrtbase._flushall()`.
 
 ## Two engines, and that is the point
 
@@ -197,10 +219,11 @@ That is the trade the speed table is buying, in both directions.
 
 ## Tests
 
-105 tests and 87% statement coverage, of which the enforced floor is 80% — the
-percentage is a snapshot, the floor is the gate. Ten of the tests need a native
-checker and skip without one, so the dependency-free job runs 95 of them and a
-separate job (below) runs the rest. The negative cases carry
+130 tests and 90% statement coverage, of which the enforced floor is 80% — the
+percentage is a snapshot, the floor is the gate. Fifteen of the tests need a
+native checker and two need `python-sat`, and both kinds skip without them, so
+the dependency-free job runs 113 and two separate jobs (below) run the rest,
+failing if anything they exist for was skipped. The negative cases carry
 most of the weight: a checker that accepts everything passes any suite that
 only feeds it valid proofs, so there are tests for truncated proofs, bogus
 refutations of satisfiable formulas, clauses that are neither RUP nor RAT, and
@@ -219,11 +242,19 @@ without installing — `make` handles that.
 The coverage tool uses the standard library's `trace` module, so checking this
 package needs no more dependencies than using it.
 
-A separate CI job installs a native checker and runs
-`tests/test_differential.py`, which compares the two implementations on every
-verdict field over a 150-instance random sweep plus hand-written cases. That
-job fails if those tests *skip* — the agreement claim above is only worth
+A separate CI job builds the native checker from the commit under test and
+runs `tests/test_differential.py`, which compares the two implementations on
+every result field over a 150-instance random sweep plus hand-written cases.
+That job fails if those tests *skip* — the agreement claim above is only worth
 making while something is checking it.
+
+Agreement between two implementations of one design is weaker evidence than it
+sounds: both can share a mistake, and in 0.1.6 both did (a lemma that was unit
+at the root when added did not extend the root assignment, so valid proofs were
+rejected). So both are also compared against `tests/naive.py`, a deliberately
+slow RUP checker that shares no code or data structures with either, on random
+proofs aimed at that case. That comparison found nothing until its generator
+was aimed; it runs in the suite and in the weekly fuzzer.
 
 ## Honest limitations
 

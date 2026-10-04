@@ -12,6 +12,81 @@ crate. The two are released together and are meant to be a matching pair; from
 
 ## [Unreleased]
 
+## [0.1.7] — 2026-10-04
+
+Three checker bugs, found while tracing why PySAT's CaDiCaL proofs fail to
+verify. One of them is a soundness hole; upgrade.
+
+### Security
+
+- **The pure-Python checker accepted refutations of satisfiable formulas when
+  a list of steps contained a negative literal.** Internal literals are
+  non-negative; Python indexed the value array with a negative one, counting
+  from the end, and `[("a", (-5,)), ("a", ())]` against the satisfiable
+  `1 2 / -2 3` returned `ok=True`. Reachable through `check_proof` with a list
+  of steps or a `MemoryProof` -- the mistake it takes is passing DIMACS
+  integers where internal literals belong, which `AGENTS.md` calls the most
+  common one. **Text proofs were not affected** (the parser converts), and
+  neither were proofs from cdclkit's solver, which writes internal literals.
+  The Rust checker refused with an unexplained `OverflowError`. Every step is
+  now validated before either checker runs, and a negative or non-integer
+  literal raises `ValueError` naming `from_dimacs`.
+- **A huge literal in a list of steps had no bound.** The round-1 guard covered
+  text proofs only, so one literal could make either checker size its arrays
+  for 10^11 variables. The bound now applies to every input shape.
+
+### Fixed
+
+- **Valid proofs were rejected when a lemma was unit at the root on arrival.**
+  A new lemma of two or more literals was attached watching its first two,
+  whatever their values. If the root assignment had already falsified all but
+  one, its last literal should have become true at the root and propagated;
+  nothing made it so, and a later lemma that needed it was rejected as neither
+  RUP nor RAT. Both implementations shared the design, so comparing them could
+  not find it. Found in a CaDiCaL 1.0.3 proof of SATLIB `uuf100-0142` that
+  drat-trim verifies in both directions; reduced to seven clauses in
+  `tests/test_root_units.py`. Rejecting a valid proof is the safe direction,
+  but it is still wrong.
+- **Valid short proofs of larger formulas were refused as malformed.** The
+  round-1 guard against hostile proof literals bounded them by the *proof's*
+  length, so `6 0` for a seven-variable formula raised `ValueError`. The bound
+  now counts the formula's variables, and lives in `check_proof`, where the
+  formula is known; `parse_proof` itself no longer bounds anything, since
+  parsing allocates nothing per variable.
+- **A DIMACS header could not declare more variables than its file had
+  characters**, which refused real instances that declare variables they do
+  not use. Up to 2^20 declared variables are now accepted from any file, and
+  the checker sizes its arrays by the variables the clauses use rather than
+  by the header.
+- `resolvents_checked` differed between the two checkers after a deletion --
+  same verdict, different count -- because Rust removed clauses from its
+  occurrence lists with `swap_remove`, changing the order RAT tries
+  resolvents in. Found by the fuzzer at round 6,631 of seed 1.
+
+### Changed
+
+- **The README's PySAT section states the established cause** of the CaDiCaL
+  proofs that do not verify. It is PySAT's binding, not CaDiCaL: every CaDiCaL
+  PySAT ships (`Cadical103`, `153`, `195`, `300`) writes binary DRAT into a
+  stream `get_proof()` reads before it is flushed. 4-8 of 50 `uuf100` proofs
+  verify as shipped, 49-50 of 50 after `fflush`. The README gives the one-line
+  workaround as a runnable example, and CI runs it on Linux. 0.1.6 had said the
+  cause was not established and named only `Cadical153`.
+
+### Added
+
+- `tests/naive.py`, a reference RUP checker sharing no code with either
+  implementation, and a property test and fuzz property comparing both
+  checkers against it on proofs aimed at root-unit lemmas. The first version
+  of that test passed against the broken checker; the generator now targets
+  the case.
+- CI and the weekly fuzzer build the native checker from this commit's
+  `rust/` (`tests/build_native.sh`) instead of installing the published
+  cdclkit-native, which embeds the last *released* crate. Changes to the crate
+  were otherwise never compared with the Python checker before they shipped.
+- `tests/test_differential.py` compares every result field, on rejections as
+  well as acceptances.
+
 ## [0.1.6] — 2026-10-04
 
 The checker is unchanged. The PySAT example on the package page was broken for
@@ -224,7 +299,8 @@ Initial release: a DRAT/DRUP proof checker that installs anywhere.
   same rules.
 - Tokenless publishing to both registries via Trusted Publishing.
 
-[Unreleased]: https://github.com/carlok/dratify/compare/v0.1.6...HEAD
+[Unreleased]: https://github.com/carlok/dratify/compare/v0.1.7...HEAD
+[0.1.7]: https://github.com/carlok/dratify/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/carlok/dratify/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/carlok/dratify/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/carlok/dratify/compare/v0.1.3...v0.1.4
