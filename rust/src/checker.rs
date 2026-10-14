@@ -220,6 +220,23 @@ impl Prop {
     }
 }
 
+/// A forward DRAT checker over a fixed input formula.
+///
+/// # Memory
+///
+/// The checker keeps per-variable arrays, about 100 bytes per variable, sized
+/// to the largest variable it has seen. `new` sizes them from `nvars`, and
+/// [`Checker::check_step`] grows them for any larger literal in a step. Nothing
+/// bounds that growth: a single step containing a literal near `u32::MAX`
+/// asks for around 200 GB, and Rust aborts the process when the allocation
+/// fails.
+///
+/// That is fine for a proof your own solver wrote. If the formula or proof
+/// comes from someone else, reject large variable indices before they reach
+/// the checker. The `dratify` Python package does this for its callers: it
+/// accepts a header of up to 2^20 variables, or more only from a file with at
+/// least as many characters as declared variables, and sizes the checker by
+/// the variables actually used.
 pub struct Checker {
     prop: Prop,
     occ: Vec<Vec<u32>>,
