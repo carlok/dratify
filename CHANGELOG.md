@@ -12,6 +12,18 @@ crate. The two are released together and are meant to be a matching pair; from
 
 ## [Unreleased]
 
+### Documentation
+
+- README: python-sat 1.9.dev16 fixes the truncated CaDiCaL proofs
+  ([pysathq/pysat#233](https://github.com/pysathq/pysat/issues/233)). Checked
+  on the same 50 `uuf100` instances: 50 of 50 verify on all four CaDiCaL
+  versions with no flush, against 4-8 of 50 on 1.9.dev15. The `fflush`
+  workaround stays, marked as needed only for older versions.
+- Rust API: `Checker` documents that its memory grows with the largest
+  literal it is given, and that callers handling untrusted input should bound
+  it.
+- Python 3.15 classifier.
+
 ## [0.1.7] — 2026-10-04
 
 Three checker bugs, found while tracing why PySAT's CaDiCaL proofs fail to

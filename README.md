@@ -105,17 +105,19 @@ The file is parsed here rather than by PySAT on purpose. SATLIB's benchmark
 files end with a `%` line, and `pysat.formula.CNF(from_file=...)` stops on it
 with `ValueError: invalid integer token`; this parser reads them.
 
-**PySAT's CaDiCaL proofs arrive truncated; flush before reading them.** Every
-CaDiCaL that PySAT ships (`Cadical103`, `Cadical153`, `Cadical195`, `Cadical300`)
-writes its proof through a C `FILE*` that `get_proof()` reads before it has been
-flushed, so the end of the proof, usually including the empty clause, is still
-in a buffer. On 50 SATLIB `uuf100` instances with python-sat 1.9.dev15 on macOS,
-4 to 8 of 50 verify as shipped and all 50 after a flush. `drat-trim`
-agrees. CaDiCaL itself is not at fault: the same version built standalone
-writes proofs that verify. Glucose and Lingeling write text proofs, which line
-buffering flushes, and verify 50 of 50; on Windows that buffering is compiled
-out and every solver is affected ([pysathq/pysat#233](https://github.com/pysathq/pysat/issues/233)).
-Until PySAT flushes the file itself:
+**Before python-sat 1.9.dev16, PySAT's CaDiCaL proofs arrived truncated.**
+Every CaDiCaL that PySAT ships (`Cadical103`, `Cadical153`, `Cadical195`,
+`Cadical300`) wrote its proof through a C `FILE*` that `get_proof()` read before
+it had been flushed, so the end of the proof, usually including the empty
+clause, was still in a buffer. On 50 SATLIB `uuf100` instances on macOS,
+1.9.dev15 gave 4 to 8 of 50 that verify as shipped, and all 50 after a flush.
+`drat-trim` agrees. CaDiCaL itself was not at fault: the same version built
+standalone writes proofs that verify. Glucose and Lingeling write text proofs,
+which line buffering flushes; on Windows that buffering is compiled out and
+every solver was affected
+([pysathq/pysat#233](https://github.com/pysathq/pysat/issues/233)).
+**1.9.dev16 fixes it:** the same 50 instances verify 50 of 50 on all four
+CaDiCaL versions, with no flush. On an older python-sat, flush first:
 
 ```python
 import ctypes
@@ -128,11 +130,11 @@ clauses = [[to_dimacs(lit) for lit in c] for c in formula.clauses]
 
 with Cadical195(bootstrap_with=clauses, with_proof=True) as s:
     assert not s.solve()
-    ctypes.CDLL(None).fflush(None)   # PySAT reads the proof before flushing it
+    ctypes.CDLL(None).fflush(None)   # only needed before python-sat 1.9.dev16
     proof = s.get_proof()
 
 result = check_proof(formula, "\n".join(proof))
-print(result.ok)          # True -- with the flush; often False without it
+print(result.ok)          # True -- before 1.9.dev16, often False without the flush
 ```
 
 On Windows the flush is `ctypes.cdll.ucrtbase._flushall()`.
