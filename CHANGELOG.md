@@ -12,6 +12,10 @@ crate. The two are released together and are meant to be a matching pair; from
 
 ## [Unreleased]
 
+## [0.1.8] — 2026-10-23
+
+A documentation release: no change to parsing or checking.
+
 ### Documentation
 
 - README: python-sat 1.9.dev16 fixes the truncated CaDiCaL proofs
@@ -23,6 +27,11 @@ crate. The two are released together and are meant to be a matching pair; from
   literal it is given, and that callers handling untrusted input should bound
   it.
 - Python 3.15 classifier.
+
+### CI
+
+- `ci.yml` can be re-run by hand (`workflow_dispatch`), for runner image
+  changes such as `ubuntu-latest` moving to Ubuntu 26.
 
 ## [0.1.7] — 2026-10-04
 
@@ -313,7 +322,8 @@ Initial release: a DRAT/DRUP proof checker that installs anywhere.
   same rules.
 - Tokenless publishing to both registries via Trusted Publishing.
 
-[Unreleased]: https://github.com/carlok/dratify/compare/v0.1.7...HEAD
+[Unreleased]: https://github.com/carlok/dratify/compare/v0.1.8...HEAD
+[0.1.8]: https://github.com/carlok/dratify/compare/v0.1.7...v0.1.8
 [0.1.7]: https://github.com/carlok/dratify/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/carlok/dratify/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/carlok/dratify/compare/v0.1.4...v0.1.5
