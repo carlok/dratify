@@ -51,14 +51,16 @@ monotone, so a RAT step is checked against exactly the clauses present.
 
 Formats
 -------
-Text DRAT, one clause per line, DIMACS literals terminated by ``0``, deletions
-prefixed by ``d``::
+Text DRAT: DIMACS literals, each clause terminated by ``0``, deletions
+prefixed by ``d``. Solvers write one clause per line::
 
     -1 2 0
     d 1 -2 3 0
     0
 
-The trailing ``0`` on its own is the empty clause: the end of the proof.
+but line breaks are only whitespace, as they are to drat-trim, so
+``-1 2 0 d 1 -2 3 0 0`` is the same proof. The ``0`` on its own is the empty
+clause: the end of the proof.
 """
 
 from __future__ import annotations
@@ -213,35 +215,57 @@ def parse_proof(text: str) -> list[tuple[str, tuple[int, ...]]]:
     up. `cnf.parse_dimacs` has always named the line and the token; this did
     not, and a malformed `.drat` produced a bare "invalid literal for int()"
     from the middle of a checker.
+
+    A proof is a stream of clauses, each ended by ``0``. Line breaks are only
+    whitespace, as in drat-trim, which reads the file with ``fscanf(" %i ")``:
+    ``1 0 2 0`` is two clauses and a clause may span lines. A ``d`` opens a
+    deletion, and only at the start of a clause. Lines whose first character
+    is ``c`` are comments.
+
+    This used to be read one line at a time, stopping at a line's first ``0``
+    and ignoring the rest. So ``1 0 0`` lost its empty clause, and worse, a
+    step after the ``0`` was never checked: ``1 2 0 3 0`` with an invalid
+    ``(3)`` was reported as "every step verified". Anything that is not a
+    clause now raises instead of being skipped.
     """
     steps: list[tuple[str, tuple[int, ...]]] = []
+    kind = "a"
+    lits: list[int] = []
+    opened = 0                     # line where the open clause began, or 0
     for lineno, raw in enumerate(text.splitlines(), 1):
         line = raw.strip()
         if not line or line[0] == "c":
             continue
-        kind = "a"
-        if line[0] == "d":
-            kind = "d"
-            line = line[1:].strip()
-        lits: list[int] = []
-        terminated = False
         for tok in line.split():
+            num = tok
+            if tok[0] == "d":
+                if opened:
+                    raise ValueError(
+                        f"proof line {lineno}: {tok!r} inside a clause (a "
+                        f"deletion can only start one)")
+                kind, opened = "d", lineno
+                num = tok[1:]      # `d1 2 0` has always been accepted
+                if not num:
+                    continue
             try:
-                d = int(tok)
+                d = int(num)
             except ValueError:
                 raise ValueError(
                     f"proof line {lineno}: bad token {tok!r}") from None
             if d == 0:
-                terminated = True
-                break
+                steps.append((kind, tuple(lits)))
+                kind, lits, opened = "a", [], 0
+                continue
             # No bound here. Parsing allocates nothing per variable; only the
             # checker does, and only it knows the formula. Bounding by this
             # text's length refused `6 0` for a seven-variable formula --
             # `check_proof` bounds against formula *and* proof instead.
             lits.append(from_dimacs(d))
-        if not terminated and lits:
-            raise ValueError(f"unterminated proof line: {raw!r}")
-        steps.append((kind, tuple(lits)))
+            opened = opened or lineno
+    if opened:
+        raise ValueError(
+            f"proof line {opened}: clause not terminated by 0 before the end "
+            f"of the proof")
     return steps
 
 

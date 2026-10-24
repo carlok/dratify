@@ -12,6 +12,38 @@ crate. The two are released together and are meant to be a matching pair; from
 
 ## [Unreleased]
 
+## [0.1.10] — 2026-10-24
+
+### Fixed
+
+- **A proof step written after a `0` on the same line was never checked.**
+  `parse_proof` read a proof one line at a time, stopped at the line's first
+  `0`, and ignored the rest. So in `1 2 0 3 0` an invalid `(3)` was skipped,
+  and a proof containing it could be reported as "every step verified". The
+  verdict itself was never wrong, since the steps that were read refute the
+  formula on their own, but a forward checker promises to check every step
+  the solver wrote. The same bug lost the empty clause in `1 0 0`, rejecting
+  a valid proof. Both engines were affected: text is parsed once, in Python,
+  for either.
+- A text proof is now read as a stream of 0-terminated clauses, the way
+  drat-trim reads it: a line break is whitespace, several clauses may share a
+  line, and one clause may span lines. A `d` starts a deletion only at the
+  start of a clause.
+
+### Changed
+
+- Anything that is not part of a clause is now an error, where it used to be
+  ignored: text after a `0` (`1 0 junk`, `1 0 c note`), a `d` inside a clause,
+  a `d` with no clause after it, and a clause still open at the end of the
+  proof. Every message names the line. Comment lines, whose first character
+  is `c`, are still skipped.
+
+### Tests
+
+- `tests/test_proof_stream.py`, with the checking cases on both engines.
+- A fifth fuzz property: re-flowing a proof's whitespace must not change what
+  it parses to.
+
 ## [0.1.9] — 2026-10-24
 
 ### Fixed
@@ -345,7 +377,8 @@ Initial release: a DRAT/DRUP proof checker that installs anywhere.
   same rules.
 - Tokenless publishing to both registries via Trusted Publishing.
 
-[Unreleased]: https://github.com/carlok/dratify/compare/v0.1.9...HEAD
+[Unreleased]: https://github.com/carlok/dratify/compare/v0.1.10...HEAD
+[0.1.10]: https://github.com/carlok/dratify/compare/v0.1.9...v0.1.10
 [0.1.9]: https://github.com/carlok/dratify/compare/v0.1.8...v0.1.9
 [0.1.8]: https://github.com/carlok/dratify/compare/v0.1.7...v0.1.8
 [0.1.7]: https://github.com/carlok/dratify/compare/v0.1.6...v0.1.7

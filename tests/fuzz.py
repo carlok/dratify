@@ -8,7 +8,7 @@ an exception a caller cannot distinguish from a verdict. Both are properties of
 inputs nobody wrote down, which is what a fuzzer is for. The unit suite covers
 the hostile cases someone thought of; this covers the ones nobody did.
 
-Three properties, each a separate failure mode:
+Five properties, each a separate failure mode:
 
 1. **The parsers terminate and fail cleanly.** Malformed input must raise
    `ValueError`, not `IndexError`, `MemoryError`, `RecursionError` or a hang.
@@ -30,6 +30,12 @@ Three properties, each a separate failure mode:
    from scratch for every lemma; this compares against it on proofs aimed at
    that case. RUP only and no deletions, the subset with one meaning.
 
+5. **Line breaks do not change a proof.** A text proof is a stream of
+   0-terminated clauses, as drat-trim reads it. The parser once stopped at a
+   line's first `0` and ignored the rest, so a step written after it was never
+   checked. Re-flowing a proof's whitespace -- clauses joined onto one line,
+   or split across several -- must parse to the same steps.
+
 Deterministic given a seed, so a failure is reproducible:
 
     python tests/fuzz.py --seed 12345
@@ -45,8 +51,8 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "src"))
 
-from dratify import (CNF, check_proof, parse_dimacs,  # noqa: E402
-                     parse_proof, register_native)
+from dratify import (CNF, MemoryProof, check_proof,  # noqa: E402
+                     parse_dimacs, parse_proof, register_native)
 from dratify.proof import DRATChecker, _native_check  # noqa: E402
 
 #: exceptions a caller can reasonably be asked to catch from a parser
@@ -89,6 +95,36 @@ def fuzz_parsers(rng: random.Random, rounds: int) -> list[str]:
                 failures.append(
                     f"{name} raised {type(e).__name__} ({e}) on round {i}, "
                     f"not ValueError. Input:\n{text!r}")
+    return failures
+
+
+def reflow(rng: random.Random, text: str) -> str:
+    """The same tokens, with each run of whitespace replaced at random."""
+    out = []
+    for i, tok in enumerate(text.split()):
+        if i:
+            out.append(rng.choice((" ", "\n", "  ", "\t", " \n ", "\n\n")))
+        out.append(tok)
+    return "".join(out) + rng.choice(("", "\n"))
+
+
+def fuzz_reflow(rng: random.Random, rounds: int) -> list[str]:
+    """Property 5: whitespace, line breaks included, carries no meaning."""
+    failures = []
+    for i in range(rounds):
+        nvars = rng.randrange(1, 9)
+        proof = MemoryProof()
+        for kind, lits in random_steps(rng, nvars):
+            (proof.delete if kind == "d" else proof.add)(lits)
+        want = proof.steps
+        text = reflow(rng, proof.to_text())
+        try:
+            got = parse_proof(text)
+        except ValueError as e:
+            got = f"ValueError: {e}"
+        if got != want:
+            failures.append(f"round {i}: re-flowed proof parsed to {got}, "
+                            f"not {want}. Text: {text!r}")
     return failures
 
 
@@ -208,6 +244,7 @@ def main() -> int:
         print("native checker: absent -- the agreement property is not tested")
 
     failures = fuzz_parsers(random.Random(seed), args.rounds)
+    failures += fuzz_reflow(random.Random(seed + 3), args.rounds)
     failures += fuzz_checkers(random.Random(seed + 1), args.rounds, impl)
     failures += fuzz_against_reference(random.Random(seed + 2),
                                        max(1, args.rounds // 4), impl)
