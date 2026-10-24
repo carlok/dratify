@@ -577,6 +577,15 @@ class DRATChecker:
     def check_step(self, kind: str, lits: Sequence[int]) -> bool:
         r = self.result
         r.steps += 1
+        # A clause is a set: `1 1 0` is the clause (1). Everything below
+        # counted occurrences, so a repeated literal made a unit lemma look
+        # like two free literals -- it never became unit at the root, and a
+        # valid proof was rejected -- and `d 1 1 0` slipped past the rule that
+        # unit deletions are ignored. Removing repeats here covers RUP, RAT,
+        # storage and deletion at once; keeping the first occurrence keeps the
+        # RAT pivot.
+        if len(set(lits)) != len(lits):
+            lits = list(dict.fromkeys(lits))
         # A proof may introduce variables the formula never mentions -- that is
         # exactly what an extended-resolution / definition-introduction step
         # does -- so the propagator has to grow before the literal is touched.

@@ -111,6 +111,8 @@ def random_steps(rng: random.Random, nvars: int):
         k = rng.randrange(0, min(3, nvars) + 1)
         lits = tuple((v << 1) | rng.randrange(2)
                      for v in rng.sample(range(nvars), k))
+        if lits and rng.random() < .15:
+            lits = lits + (rng.choice(lits),)          # a repeated literal
         steps.append((kind, lits))
     if rng.random() < 0.4:
         steps.append(("a", ()))                       # claim the empty clause

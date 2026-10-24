@@ -40,7 +40,8 @@
 //! is what you want when validating your own solver, since it exercises the
 //! rarely-taken inferences where bugs live rather than trimming them away.
 
-use std::collections::HashMap;
+use std::borrow::Cow;
+use std::collections::{HashMap, HashSet};
 
 use crate::{neg, var_of, Lit};
 
@@ -254,6 +255,22 @@ fn key(lits: &[Lit]) -> Vec<Lit> {
     k
 }
 
+/// `lits` without repeated literals, first occurrences kept in order.
+/// Borrows when there is nothing to remove, which is almost every step.
+fn distinct(lits: &[Lit]) -> Cow<'_, [Lit]> {
+    let repeats = if lits.len() <= 16 {
+        (1..lits.len()).any(|i| lits[..i].contains(&lits[i]))
+    } else {
+        let mut seen = HashSet::with_capacity(lits.len());
+        !lits.iter().all(|l| seen.insert(*l))
+    };
+    if !repeats {
+        return Cow::Borrowed(lits);
+    }
+    let mut seen = HashSet::with_capacity(lits.len());
+    Cow::Owned(lits.iter().copied().filter(|l| seen.insert(*l)).collect())
+}
+
 impl Checker {
     pub fn new(
         nvars: u32,
@@ -409,6 +426,15 @@ impl Checker {
 
     pub fn check_step(&mut self, is_deletion: bool, lits: &[Lit]) -> bool {
         self.result.steps += 1;
+        // A clause is a set: `1 1 0` is the clause (1). Everything below
+        // counted occurrences, so a repeated literal made a unit lemma look
+        // like two free literals -- it never became unit at the root, and a
+        // valid proof was rejected -- and `d 1 1 0` slipped past the rule that
+        // unit deletions are ignored. Removing repeats here covers RUP, RAT,
+        // storage and deletion at once; keeping the first occurrence keeps the
+        // RAT pivot. The Python checker does the same in the same place.
+        let lits = distinct(lits);
+        let lits: &[Lit] = &lits;
         if !lits.is_empty() {
             // a proof may introduce variables the formula never mentions --
             // that is exactly what an extended-resolution step does
@@ -634,6 +660,43 @@ mod tests {
         let mut with_rat = Checker::new(2, &f, true, true);
         assert!(with_rat.check_step(false, &clause));
         assert_eq!(with_rat.result.rat_steps, 1);
+    }
+
+    /// (1 2) (1 -2) (-1 3) (-1 -3): refuted by `1 0` and then `0`.
+    fn needs_unit_one() -> Vec<Vec<Lit>> {
+        [vec![1, 2], vec![1, -2], vec![-1, 3], vec![-1, -3]]
+            .iter()
+            .map(|c| c.iter().map(|&x| d(x)).collect())
+            .collect()
+    }
+
+    #[test]
+    fn a_repeated_literal_is_the_same_clause() {
+        // `1 1 0` is the clause (1). Counted by occurrence it had two free
+        // literals, never became unit at the root, and `0` was rejected.
+        for lemma in [vec![d(1)], vec![d(1), d(1)], vec![d(1), d(1), d(1)]] {
+            let steps = vec![(false, lemma.clone()), (false, vec![])];
+            let r = Checker::new(3, &needs_unit_one(), true, true).check(&steps);
+            assert!(r.ok, "{lemma:?}: {}", r.reason);
+        }
+    }
+
+    #[test]
+    fn a_repeated_literal_does_not_make_a_unit_deletable() {
+        let f: Vec<Vec<Lit>> = vec![vec![d(1)], vec![d(-1), d(2)]];
+        for del in [vec![d(1)], vec![d(1), d(1)]] {
+            let r = Checker::new(2, &f, true, true).check(&[(true, del.clone())]);
+            assert_eq!((r.deletions, r.ignored_deletions), (0, 1), "{del:?}");
+        }
+    }
+
+    #[test]
+    fn distinct_keeps_first_occurrences_in_order() {
+        assert!(matches!(distinct(&[4, 2, 6]), Cow::Borrowed(_)));
+        assert_eq!(&*distinct(&[4, 2, 4, 6, 2]), &[4, 2, 6]);
+        // the long-clause path
+        let long: Vec<Lit> = (0..20).chain([3, 19]).collect();
+        assert_eq!(&*distinct(&long), &(0..20).collect::<Vec<Lit>>()[..]);
     }
 
     #[test]

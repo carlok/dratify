@@ -34,11 +34,11 @@ def propagates_to_conflict(clauses: list[tuple[int, ...]],
         for c in clauses:
             if any(l in true for l in c):
                 continue
-            free = [l for l in c if -l not in true]
+            free = {l for l in c if -l not in true}   # distinct: (x x) is unit
             if not free:
                 return True
             if len(free) == 1:
-                true.add(free[0])
+                true.add(next(iter(free)))
                 changed = True
     return False
 
@@ -52,11 +52,11 @@ def implied(clauses: list[tuple[int, ...]]) -> set[int] | None:
         for c in clauses:
             if any(l in true for l in c):
                 continue
-            free = [l for l in c if -l not in true]
+            free = {l for l in c if -l not in true}   # distinct: (x x) is unit
             if not free:
                 return None
             if len(free) == 1:
-                true.add(free[0])
+                true.add(next(iter(free)))
                 changed = True
     return true
 

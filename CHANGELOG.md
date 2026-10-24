@@ -12,6 +12,29 @@ crate. The two are released together and are meant to be a matching pair; from
 
 ## [Unreleased]
 
+## [0.1.9] — 2026-10-24
+
+### Fixed
+
+- **A proof step that repeats a literal was misread, in both checkers.** A
+  clause is a set, so `1 1 0` is the clause (1), but both checkers counted
+  occurrences. A lemma whose only non-false literal was written twice looked
+  like it had two free literals and never became unit at the root, so a later
+  step that needed it was rejected: `1 0` then `0` verified, while `1 1 0`
+  then `0` did not. `d 1 1 0` also got past the rule that unit deletions are
+  ignored, and deleted the unit. Repeats are now removed when a step is read,
+  keeping the first occurrence, so the RAT pivot is unchanged. This was a
+  false rejection, never a false acceptance: no invalid proof was accepted.
+  Formulas were not affected, because `CNF.add` already drops repeats.
+
+### Tests
+
+- `tests/naive.py`, the independent reference, made the same mistake, and so
+  could not catch this one. It now treats clauses as sets. Its property test
+  and the two-checker agreement fuzz now generate repeated literals.
+- `tests/test_repeated_literals.py`, on both engines, and Rust unit tests for
+  the same cases.
+
 ## [0.1.8] — 2026-10-23
 
 A documentation release: no change to parsing or checking.
@@ -322,7 +345,8 @@ Initial release: a DRAT/DRUP proof checker that installs anywhere.
   same rules.
 - Tokenless publishing to both registries via Trusted Publishing.
 
-[Unreleased]: https://github.com/carlok/dratify/compare/v0.1.8...HEAD
+[Unreleased]: https://github.com/carlok/dratify/compare/v0.1.9...HEAD
+[0.1.9]: https://github.com/carlok/dratify/compare/v0.1.8...v0.1.9
 [0.1.8]: https://github.com/carlok/dratify/compare/v0.1.7...v0.1.8
 [0.1.7]: https://github.com/carlok/dratify/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/carlok/dratify/compare/v0.1.5...v0.1.6

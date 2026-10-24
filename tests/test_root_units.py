@@ -168,6 +168,10 @@ class TestAgainstTheNaiveReference(unittest.TestCase):
             if -free not in lemma:
                 lemma.add(free)
             lemma = tuple(rng.sample(sorted(lemma), len(lemma)))
+            if lemma and rng.random() < .2:
+                # a repeated literal: (x x) is the clause (x), and both
+                # checkers once counted it as two free literals
+                lemma = lemma + (rng.choice(lemma),)
             valid = naive.propagates_to_conflict(formula + lemmas,
                                                  {-l for l in lemma})
             if valid or rng.random() < .15:
