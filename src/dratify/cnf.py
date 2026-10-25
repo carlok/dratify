@@ -273,6 +273,7 @@ def parse_dimacs(text: str, strict: bool = False) -> CNF:
     f = CNF()
     declared_vars = declared_clauses = None
     pending: list[int] = []
+    tautologies = 0  # clauses read but dropped by CNF.add
     for lineno, raw in enumerate(text.splitlines(), 1):
         line = raw.strip()
         if not line:
@@ -320,7 +321,8 @@ def parse_dimacs(text: str, strict: bool = False) -> CNF:
             except ValueError:
                 raise ValueError(f"line {lineno}: bad token {tok!r}") from None
             if d == 0:
-                f.add_dimacs(pending)
+                if not f.add_dimacs(pending):
+                    tautologies += 1
                 pending = []
             else:
                 # Same bound as the header: a literal is untrusted too, and
@@ -335,15 +337,17 @@ def parse_dimacs(text: str, strict: bool = False) -> CNF:
     if pending:
         if strict:
             raise ValueError("input ends with an unterminated clause")
-        f.add_dimacs(pending)
+        if not f.add_dimacs(pending):
+            tautologies += 1
     if declared_vars is not None and declared_clauses is not None:
-        if declared_vars != f.nvars or declared_clauses != len(f.clauses):
+        found_clauses = len(f.clauses) + tautologies
+        if declared_vars != f.nvars or declared_clauses != found_clauses:
             if strict:
                 raise ValueError(
                     f"header says {declared_vars} vars / {declared_clauses} "
-                    f"clauses, found {f.nvars} / {len(f.clauses)}"
+                    f"clauses, found {f.nvars} / {found_clauses}"
                 )
-            f.header_mismatch = (declared_clauses, len(f.clauses))
+            f.header_mismatch = (declared_clauses, found_clauses)
     return f
 
 
