@@ -323,6 +323,14 @@ def parse_dimacs(text: str, strict: bool = False) -> CNF:
                 f.add_dimacs(pending)
                 pending = []
             else:
+                # Same bound as the header: a literal is untrusted too, and
+                # CNF.add grows nvars to cover it.
+                limit = max(len(text), HEADER_VARS_FLOOR)
+                if abs(d) > limit:
+                    raise ValueError(
+                        f"line {lineno}: literal {d} names a variable above "
+                        f"the limit of {limit} for a {len(text)}-character "
+                        f"input")
                 pending.append(d)
     if pending:
         if strict:
