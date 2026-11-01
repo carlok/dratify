@@ -221,10 +221,10 @@ That is the trade the speed table is buying, in both directions.
 
 ## Tests
 
-163 tests and 90% statement coverage, of which the enforced floor is 80% — the
+172 tests and 90% statement coverage, of which the enforced floor is 80% — the
 percentage is a snapshot, the floor is the gate. Twenty-five of the tests need a
 native checker and two need `python-sat`, and both kinds skip without them, so
-the dependency-free job runs 113 and two separate jobs (below) run the rest,
+the dependency-free job runs 145 and two separate jobs (below) run the rest,
 failing if anything they exist for was skipped. The negative cases carry
 most of the weight: a checker that accepts everything passes any suite that
 only feeds it valid proofs, so there are tests for truncated proofs, bogus
