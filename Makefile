@@ -16,7 +16,7 @@ help:
 	@echo "make fuzz      -- randomised differential run; SEED=n to reproduce"
 	@echo "make native    -- build the Rust checker from this checkout (needs cargo)"
 	@echo "make native-released -- install the published Rust checker instead"
-	@echo "make lint      -- cargo clippy and cargo test on the crate"
+	@echo "make lint      -- compile every Python file, then cargo test and clippy"
 	@echo "make gate      -- everything that must pass before a commit"
 
 test:
@@ -49,6 +49,7 @@ fuzz:
 	$(PYTHON) tests/fuzz.py $(if $(SEED),--seed $(SEED),)
 
 lint:
+	$(PYTHON) -m compileall -q src tests bench
 	cd rust && cargo test --release
 	cd rust && cargo clippy --all-targets -- -D warnings
 

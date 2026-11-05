@@ -9,7 +9,7 @@ directly will not.
 ```bash
 make test        # the full suite, no Rust and no install needed
 make coverage    # statement coverage, floor 80%
-make lint        # cargo test and clippy on the crate
+make lint        # compile every Python file, then cargo test and clippy
 make gate        # all of the above; run before opening a PR
 ```
 

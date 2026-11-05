@@ -12,6 +12,13 @@ crate. The two are released together and are meant to be a matching pair; from
 
 ## [Unreleased]
 
+### Tests
+
+- CI has a `lint` job that byte-compiles `src`, `tests` and `bench` on Python
+  3.10, the oldest supported version. The tests only reach what they import, so
+  a syntax error in a script nothing imports used to get through. `make lint`
+  runs the same check before `cargo test` and clippy.
+
 ## [0.1.10] — 2026-10-24
 
 ### Fixed

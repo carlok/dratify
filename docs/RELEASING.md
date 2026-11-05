@@ -46,7 +46,7 @@ be configured. That is done; it is not needed again.
 ## 1. The tree has to be honest
 
 ```bash
-make gate                     # tests, coverage, cargo test, clippy
+make gate                     # tests, coverage, compile check, cargo test, clippy
 make native && make test-native   # the suite with a native checker present
 python bench/repro.py --quick     # the numbers the README quotes
 ```
