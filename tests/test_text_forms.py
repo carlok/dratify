@@ -140,5 +140,24 @@ class TestLines(unittest.TestCase):
         self.assertEqual(parse_proof("1\x0b2\x0c0\n"), [("a", (0, 2))])
 
 
+class TestOneHeader(unittest.TestCase):
+    def test_a_second_header_is_refused(self):
+        for strict in (False, True):
+            with self.subTest(strict=strict):
+                with self.assertRaises(ValueError) as cm:
+                    parse_dimacs("p cnf 1 1\n1 0\np cnf 1 2\n-1 0\n", strict=strict)
+                self.assertIn("line 3", str(cm.exception))
+                self.assertIn("line 1", str(cm.exception))
+
+    def test_even_an_identical_one(self):
+        with self.assertRaises(ValueError):
+            parse_dimacs("p cnf 1 1\np cnf 1 1\n1 0\n")
+
+    def test_one_header_after_the_clauses_is_still_tolerated(self):
+        f = parse_dimacs("1 0\np cnf 1 1\n")
+        self.assertEqual(f.clauses, [ONE])
+        self.assertIsNone(f.header_mismatch)
+
+
 if __name__ == "__main__":
     unittest.main()
