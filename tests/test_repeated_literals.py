@@ -24,6 +24,7 @@ from __future__ import annotations
 import unittest
 
 from dratify import check_proof, parse_dimacs, register_native
+from dratify.lits import from_dimacs
 
 try:
     from tests.test_root_units import _native
@@ -73,6 +74,13 @@ class TestRepeatedLiterals(unittest.TestCase):
         formula = "p cnf 2 2\n1 2 0\n-1 2 0\n"
         r = self.check(formula, "d 2 1 2 0\n")
         self.assertEqual((r.deletions, r.ignored_deletions), (1, 0))
+
+    def test_a_rejected_step_is_reported_as_the_proof_wrote_it(self):
+        """The native path always did this, and the Python checker did not."""
+        r = self.check("p cnf 2 1\n-1 2 0\n", "1 1 0\n")
+        self.assertEqual(r.failed_step, 1)
+        self.assertEqual(r.failed_clause, (from_dimacs(1), from_dimacs(1)))
+        self.assertIn("first bad step 1: 1 1 0", r.report())
 
     def test_the_rat_pivot_is_the_first_literal_still(self):
         # F = { -1 2, 2 3 }: (1 -2) is not RUP. It is RAT on 1 (the only

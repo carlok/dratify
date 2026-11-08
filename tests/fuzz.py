@@ -157,7 +157,7 @@ def random_steps(rng: random.Random, nvars: int):
 
 FIELDS = ("ok", "reason", "steps", "rup_steps", "rat_steps", "deletions",
           "ignored_deletions", "resolvents_checked", "failed_step",
-          "reached_empty")
+          "failed_clause", "reached_empty")
 
 
 def fuzz_checkers(rng: random.Random, rounds: int, impl) -> list[str]:

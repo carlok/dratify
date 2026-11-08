@@ -659,7 +659,8 @@ class DRATChecker:
         # valid proof was rejected -- and `d 1 1 0` slipped past the length test
         # for deletions. Removing repeats here covers RUP, RAT,
         # storage and deletion at once; keeping the first occurrence keeps the
-        # RAT pivot.
+        # RAT pivot. A rejected step is still reported as the proof wrote it.
+        written = lits
         if len(set(lits)) != len(lits):
             lits = list(dict.fromkeys(lits))
         # A proof may introduce variables the formula never mentions -- that is
@@ -685,7 +686,7 @@ class DRATChecker:
             r.rat_steps += 1
         else:
             r.failed_step = r.steps
-            r.failed_clause = tuple(lits)
+            r.failed_clause = tuple(written)
             r.reason = (
                 "clause is neither RUP nor RAT with respect to the "
                 "clauses available at this point"
