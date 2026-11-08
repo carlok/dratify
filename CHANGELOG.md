@@ -38,6 +38,9 @@ crate. The two are released together and are meant to be a matching pair; from
 
 ### Changed
 
+- A header is exactly `p cnf <vars> <clauses>`. Tokens after the fourth raise; they
+  used to be dropped, along with any clause written there. `pq cnf 1 1` is not a
+  header and raises too.
 - A second `p cnf` line raises `ValueError`, in strict and lenient mode alike. It
   used to replace the first, which is what let a hidden clause past `strict=True`.
 - CR-only line endings raise `ValueError`, as does a `\r` between tokens. They were

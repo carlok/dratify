@@ -159,5 +159,30 @@ class TestOneHeader(unittest.TestCase):
         self.assertIsNone(f.header_mismatch)
 
 
+class TestAHeaderIsFourTokens(unittest.TestCase):
+    def test_tokens_after_the_fourth_are_refused(self):
+        for text in ("p cnf 1 1 -1 0\n1 0\n", "p cnf 1 0 1 0\n",
+                     "p cnf 1 1 x\n1 0\n"):
+            for strict in (False, True):
+                with self.subTest(text=text, strict=strict):
+                    with self.assertRaises(ValueError) as cm:
+                        parse_dimacs(text, strict=strict)
+                    self.assertIn("line 1", str(cm.exception))
+
+    def test_the_first_token_is_exactly_p(self):
+        for text in ("pq cnf 1 1\n1 0\n", "pcnf 1 1\n1 0\n"):
+            with self.subTest(text=text), self.assertRaises(ValueError) as cm:
+                parse_dimacs(text)
+            self.assertIn("malformed header", str(cm.exception))
+
+    def test_a_short_header_is_still_refused(self):
+        with self.assertRaises(ValueError):
+            parse_dimacs("p cnf 1\n1 0\n")
+
+    def test_tabs_and_runs_of_spaces_still_separate_them(self):
+        f = parse_dimacs("p  cnf\t1   1\n1 0\n", strict=True)
+        self.assertEqual(f.clauses, [ONE])
+
+
 if __name__ == "__main__":
     unittest.main()
