@@ -104,6 +104,10 @@ class TestBothCheckersAgree(unittest.TestCase):
         r = self._agree("p cnf 2 1\n1 0\n", "2 0\n0\n", "unjustified")
         self.assertFalse(r.ok)
 
+    def test_a_rejected_step_that_repeats_a_literal(self):
+        r = self._agree("p cnf 2 1\n-1 2 0\n", "1 1 0\n", "repeat")
+        self.assertEqual(r.failed_step, 1)
+
     def test_a_flipped_literal(self):
         r = self._agree(SQUARE, "-1 0\n0\n", "flipped")
         self.assertIsNotNone(r)

@@ -463,7 +463,9 @@ impl Checker {
         // valid proof was rejected -- and `d 1 1 0` slipped past the length test
         // for deletions. Removing repeats here covers RUP, RAT,
         // storage and deletion at once; keeping the first occurrence keeps the
-        // RAT pivot. The Python checker does the same in the same place.
+        // RAT pivot. The Python checker does the same in the same place. A
+        // rejected step is still reported as the proof wrote it.
+        let written = lits;
         let lits = distinct(lits);
         let lits: &[Lit] = &lits;
         if !lits.is_empty() {
@@ -494,7 +496,7 @@ impl Checker {
             self.result.rat_steps += 1;
         } else {
             self.result.failed_step = self.result.steps as i64;
-            self.result.failed_clause = lits.to_vec();
+            self.result.failed_clause = written.to_vec();
             self.result.reason = if self.check_rat {
                 "clause is neither RUP nor RAT with respect to the clauses \
                  available at this point"
@@ -749,6 +751,14 @@ mod tests {
         let f: Vec<Vec<Lit>> = vec![vec![d(1)], vec![d(1), d(2)]];
         let r = Checker::new(2, &f, true, true).check(&[(true, vec![d(1), d(2)])]);
         assert_eq!((r.deletions, r.ignored_deletions), (1, 0));
+    }
+
+    #[test]
+    fn a_rejected_step_is_reported_as_written() {
+        let r = Checker::new(2, &[vec![d(-1), d(2)]], true, true)
+            .check(&[(false, vec![d(1), d(1)])]);
+        assert_eq!(r.failed_step, 1);
+        assert_eq!(r.failed_clause, vec![d(1), d(1)]);
     }
 
     #[test]

@@ -51,6 +51,11 @@ crate. The two are released together and are meant to be a matching pair; from
   makes the Rust docs' claim about `dratify`'s sizing true. Literals that `Lit`
   cannot hold raise `ValueError` rather than `OverflowError`.
 
+- `failed_clause` differed between the engines when a rejected step repeated a
+  literal: `1 1 0` gave `(0,)` from Python and `(0, 0)` from native. Both now report
+  the step as the proof wrote it, as does `failed_clause` on the Rust `CheckResult`,
+  which had the repeat removed. Found by the soundness campaign.
+
 ### Changed
 
 - Tokens are what a DIMACS reader takes them to be, in both parsers: separated by
