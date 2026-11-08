@@ -242,8 +242,9 @@ impl Prop {
 /// comes from someone else, reject large variable indices before they reach
 /// the checker. The `dratify` Python package does this for its callers: it
 /// accepts a header of up to 2^20 variables, or more only from a file with at
-/// least as many characters as declared variables, and sizes the checker by
-/// the variables actually used.
+/// least as many characters as declared variables, accepts proof literals up to
+/// 2^20 variables past the formula's, or more only from a proof with as many
+/// literal occurrences, and sizes the checker by the variables actually used.
 pub struct Checker {
     prop: Prop,
     occ: Vec<Vec<u32>>,

@@ -56,6 +56,18 @@ crate. The two are released together and are meant to be a matching pair; from
   the step as the proof wrote it, as does `failed_clause` on the Rust `CheckResult`,
   which had the repeat removed. Found by the soundness campaign.
 
+- **A valid proof could raise over the number of a fresh variable, and a comment
+  could change that.** The guard against hostile literals bounded a proof's
+  variables by the formula's count plus the larger of its literal occurrences and
+  its text's length, so `7 0` on a small formula raised, the same line after a
+  comment did not, and a list of steps got a tighter bound than the same proof as
+  text. The bound is now the formula's count plus the larger of its occurrences and
+  2^20, the amount `parse_dimacs` already accepts from any file. It reads only the
+  steps, and `DRATChecker` applies it too. Every proof the occurrence bound accepted
+  stays accepted. A proof that only the text's length let through, naming a variable
+  more than 2^20 past the formula with fewer occurrences than that, now raises.
+  Found by the soundness campaign.
+
 ### Changed
 
 - Tokens are what a DIMACS reader takes them to be, in both parsers: separated by
