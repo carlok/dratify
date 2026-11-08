@@ -271,6 +271,8 @@ was aimed; it runs in the suite and in the weekly fuzzer.
   character in a comment stays in the comment. `parse_dimacs_file` reads the bytes
   as they are. `Path.read_text()` does not: its universal newlines turn a stray `\r`
   into a line break before any parser sees it, so a comment can end early.
+- Tokens are separated by ASCII whitespace and integers are `-?[0-9]+`, in formulas
+  and in proofs. `1_0`, `+1`, Unicode digits and a no-break space raise.
 - Deletion follows `drat-trim`'s operational reading for reason clauses (Rebola-Pardo
   and Biere, 2018), not the specified one, approximated by the root-unit test: a
   clause that only looks like a reason is kept as well. A proof that relies on such

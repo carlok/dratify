@@ -38,6 +38,11 @@ crate. The two are released together and are meant to be a matching pair; from
 
 ### Changed
 
+- Tokens are what a DIMACS reader takes them to be, in both parsers: separated by
+  ASCII whitespace, and integers are `-?[0-9]+`. `int()` and `str.split()` also
+  accepted `1_0`, `+1`, digits from any script and a no-break space between tokens,
+  and a no-break space before `c` turned a clause line into a comment, losing the
+  clause. All of those raise, with the line.
 - A header is exactly `p cnf <vars> <clauses>`. Tokens after the fourth raise; they
   used to be dropped, along with any clause written there. `pq cnf 1 1` is not a
   header and raises too.

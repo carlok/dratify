@@ -76,7 +76,7 @@ import io
 import os
 from typing import Iterable, Sequence
 
-from .cnf import CNF, _LINE_SPACE, _lines, _refuse_stray_cr
+from .cnf import CNF, _LINE_SPACE, _int, _lines, _refuse_stray_cr, _tokens
 from .lits import F, T, U, from_dimacs, to_dimacs
 
 __all__ = [
@@ -228,7 +228,8 @@ def parse_proof(text: str) -> list[tuple[str, tuple[int, ...]]]:
     ``1 0 2 0`` is two clauses and a clause may span lines. A ``d`` opens a
     deletion, and only at the start of a clause. Lines whose first character
     is ``c`` are comments, and a comment runs to the newline: a form feed does
-    not end it. CRLF reads, and CR-only line endings raise.
+    not end it. CRLF reads, and CR-only line endings raise. Tokens are separated
+    by ASCII whitespace, and an integer is ``-?[0-9]+``.
 
     This used to be read one line at a time, stopping at a line's first ``0``
     and ignoring the rest. So ``1 0 0`` lost its empty clause, and worse, a
@@ -245,7 +246,7 @@ def parse_proof(text: str) -> list[tuple[str, tuple[int, ...]]]:
         if not line or line[0] == "c":
             continue
         _refuse_stray_cr(lineno, line)
-        for tok in line.split():
+        for tok in _tokens(line):
             num = tok
             if tok[0] == "d":
                 if opened:
@@ -257,7 +258,7 @@ def parse_proof(text: str) -> list[tuple[str, tuple[int, ...]]]:
                 if not num:
                     continue
             try:
-                d = int(num)
+                d = _int(num)
             except ValueError:
                 raise ValueError(
                     f"proof line {lineno}: bad token {tok!r}") from None
