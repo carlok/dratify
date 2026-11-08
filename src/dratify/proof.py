@@ -483,6 +483,13 @@ class DRATChecker:
     *self*-check: it verifies every step the solver actually took, including
     the ones that turned out to be useless, so a bug in a rarely-exercised
     inference cannot hide behind trimming.
+
+    The exception is that a refutation is final.  Once unit propagation at the
+    root reaches a conflict, later deletions cannot undo it and every later
+    addition passes, whatever clauses remain.  That is sound: every step up to
+    there preserved satisfiability, so a satisfiable input cannot reach it.  An
+    input propagation refutes on its own gets ``ok=True`` and
+    ``reached_empty=True`` without the proof being read at all.
     """
 
     def __init__(self, formula: CNF, check_rat: bool = True, apply_deletions: bool = True):
@@ -555,7 +562,7 @@ class DRATChecker:
     def _is_rup(self, lits: Sequence[int]) -> bool:
         """True when negating ``lits`` and propagating yields a conflict."""
         if self._root_conflict:
-            return True
+            return True            # a refutation is final: see the class docstring
         prop = self.prop
         mark = len(prop.trail)
         conflict = False

@@ -31,6 +31,16 @@ crate. The two are released together and are meant to be a matching pair; from
 
 - `CheckResult.report()` no longer calls every ignored deletion a unit deletion.
 
+### Documentation
+
+- A refutation is final, and now says so. Once the clauses conflict at the root,
+  later deletions cannot undo it and every later addition passes, whatever is left.
+  The docs promised checking against the clauses present without that exception,
+  and `SECURITY.md` and `AGENTS.md` did not mention a formula refuted by propagation
+  alone, which is accepted with `reached_empty=True` and its proof unread. No
+  behaviour changed: all of this is sound, and it is pinned by
+  `tests/test_refutation_is_final.py`.
+
 ### Tests
 
 - CI has a `lint` job that byte-compiles `src`, `tests` and `bench` on Python
