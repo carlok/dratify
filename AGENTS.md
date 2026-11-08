@@ -16,6 +16,13 @@ two is exactly how a truncated proof gets accepted. `CheckResult` also carries
 `reason`, `steps`, `rup_steps`, `rat_steps`, `deletions`,
 `ignored_deletions`, `resolvents_checked`, `failed_step`, `failed_clause`.
 
+One exception to "actually derived": a formula that unit propagation refutes on
+its own gets `ok=True` and `reached_empty=True` with `steps=0`, and the proof is
+not read beyond parsing. `reason` says so. Refutation is also final in a proof:
+once the clauses conflict at the root, later deletions cannot undo it and every
+later addition passes. Both are sound, and neither lets a satisfiable formula
+through. A proof whose steps conflict at the root still has to write its `0`.
+
 ## `proof` accepts several shapes
 
 `check_proof(formula, proof, check_rat=True, apply_deletions=True, engine="auto")`

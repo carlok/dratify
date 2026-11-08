@@ -39,6 +39,12 @@
 //! skips lines that never contribute to the empty clause, but forward checking
 //! is what you want when validating your own solver, since it exercises the
 //! rarely-taken inferences where bugs live rather than trimming them away.
+//!
+//! The exception is that a refutation is final. Once unit propagation at the
+//! root reaches a conflict, later deletions cannot undo it and every later
+//! addition passes, whatever clauses remain. That is sound: every step up to
+//! there preserved satisfiability, so a satisfiable input cannot reach it. An
+//! input propagation refutes on its own is accepted with the proof unread.
 
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -360,7 +366,7 @@ impl Checker {
     /// True when negating `lits` and propagating yields a conflict.
     fn is_rup(&mut self, lits: &[Lit]) -> bool {
         if self.root_conflict {
-            return true;
+            return true; // a refutation is final: see the module docs
         }
         let mark = self.prop.trail.len();
         let mut conflict = false;

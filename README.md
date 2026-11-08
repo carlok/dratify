@@ -174,7 +174,10 @@ check_proof(formula, proof, engine="auto")     # default: native when present
 
 Checking is **forward**: every step is verified, rather than working backwards
 from the empty clause as `drat-trim` does. That makes it slower on large proofs
-and means a corrupted step is caught where it occurs.
+and means a corrupted step is caught where it occurs. A refutation is final: once
+the clauses conflict at the root, later deletions cannot undo it and later
+additions pass, and a formula propagation refutes on its own is accepted with its
+proof unread. Both are sound, since a satisfiable formula cannot get there.
 
 ## Speed
 

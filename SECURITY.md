@@ -18,6 +18,13 @@ the worst bug this package can have. Everything it is used for rests on that
 not happening. A satisfying assignment for the formula is the ideal report,
 since it settles the question immediately.
 
+The one input accepted without its proof deriving anything is a formula that unit
+propagation refutes on its own: that is `ok=True` with the reason "input formula
+is refuted by unit propagation alone", and it is correct. Likewise a refutation is
+final: once a proof's steps conflict at the root, later deletions do not undo it
+and later additions pass. Neither is a report, because neither can happen on a
+satisfiable formula.
+
 **High: a crash or hang on untrusted input.** Proofs and DIMACS files often
 arrive from elsewhere. Neither parser should be able to be driven into an
 unbounded loop, unbounded memory, or an unhandled exception that a caller
