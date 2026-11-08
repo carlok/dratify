@@ -18,9 +18,9 @@ pip install dratify              # pure Python, zero dependencies
 
 ```python
 from pathlib import Path
-from dratify import parse_dimacs, check_proof
+from dratify import parse_dimacs_file, check_proof
 
-formula = parse_dimacs(Path("problem.cnf").read_text())
+formula = parse_dimacs_file("problem.cnf")
 result = check_proof(formula, Path("proof.drat").read_text())
 
 print(result.ok)              # True  -- the refutation is genuine
@@ -84,11 +84,10 @@ solver crate. If you never look at UNSAT answers, you do not need this at all.
 ## Check a proof from PySAT
 
 ```python
-from pathlib import Path
 from pysat.solvers import Glucose42
-from dratify import parse_dimacs, check_proof, to_dimacs
+from dratify import parse_dimacs_file, check_proof, to_dimacs
 
-formula = parse_dimacs(Path("problem.cnf").read_text())
+formula = parse_dimacs_file("problem.cnf")
 clauses = [[to_dimacs(lit) for lit in c] for c in formula.clauses]
 
 with Glucose42(bootstrap_with=clauses, with_proof=True) as s:
@@ -121,11 +120,10 @@ CaDiCaL versions, with no flush. On an older python-sat, flush first:
 
 ```python
 import ctypes
-from pathlib import Path
 from pysat.solvers import Cadical195
-from dratify import parse_dimacs, check_proof, to_dimacs
+from dratify import parse_dimacs_file, check_proof, to_dimacs
 
-formula = parse_dimacs(Path("problem.cnf").read_text())
+formula = parse_dimacs_file("problem.cnf")
 clauses = [[to_dimacs(lit) for lit in c] for c in formula.clauses]
 
 with Cadical195(bootstrap_with=clauses, with_proof=True) as s:
@@ -268,6 +266,11 @@ was aimed; it runs in the suite and in the weekly fuzzer.
 ## Honest limitations
 
 - Forward checking only. Backward checking would close the large-proof gap.
+- Lines end at `\n`, with one optional `\r` before it. CR-only files raise
+  `ValueError`, and so does a `\r` between tokens; a form feed or any other
+  character in a comment stays in the comment. `parse_dimacs_file` reads the bytes
+  as they are. `Path.read_text()` does not: its universal newlines turn a stray `\r`
+  into a line break before any parser sees it, so a comment can end early.
 - Deletion follows `drat-trim`'s operational reading for reason clauses (Rebola-Pardo
   and Biere, 2018), not the specified one, approximated by the root-unit test: a
   clause that only looks like a reason is kept as well. A proof that relies on such

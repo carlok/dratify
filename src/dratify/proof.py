@@ -76,7 +76,7 @@ import io
 import os
 from typing import Iterable, Sequence
 
-from .cnf import CNF
+from .cnf import CNF, _LINE_SPACE, _lines, _refuse_stray_cr
 from .lits import F, T, U, from_dimacs, to_dimacs
 
 __all__ = [
@@ -227,7 +227,8 @@ def parse_proof(text: str) -> list[tuple[str, tuple[int, ...]]]:
     whitespace, as in drat-trim, which reads the file with ``fscanf(" %i ")``:
     ``1 0 2 0`` is two clauses and a clause may span lines. A ``d`` opens a
     deletion, and only at the start of a clause. Lines whose first character
-    is ``c`` are comments.
+    is ``c`` are comments, and a comment runs to the newline: a form feed does
+    not end it. CRLF reads, and CR-only line endings raise.
 
     This used to be read one line at a time, stopping at a line's first ``0``
     and ignoring the rest. So ``1 0 0`` lost its empty clause, and worse, a
@@ -239,10 +240,11 @@ def parse_proof(text: str) -> list[tuple[str, tuple[int, ...]]]:
     kind = "a"
     lits: list[int] = []
     opened = 0                     # line where the open clause began, or 0
-    for lineno, raw in enumerate(text.splitlines(), 1):
-        line = raw.strip()
+    for lineno, raw in enumerate(_lines(text), 1):
+        line = raw.strip(_LINE_SPACE)
         if not line or line[0] == "c":
             continue
+        _refuse_stray_cr(lineno, line)
         for tok in line.split():
             num = tok
             if tok[0] == "d":
