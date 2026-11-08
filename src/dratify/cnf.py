@@ -332,8 +332,11 @@ def parse_dimacs(text: str, strict: bool = False) -> CNF:
                     f"line {lineno}: second header {line!r}; the first is on "
                     f"line {header_line}")
             header_line = lineno
+            # Exactly `p cnf <vars> <clauses>`. Looking at one character and
+            # setting only a minimum length let `p cnf 1 1 -1 0` lose a clause
+            # to the header and `pq cnf 1 1` pass for one.
             parts = line.split()
-            if len(parts) < 4 or parts[1] != "cnf":
+            if len(parts) != 4 or parts[0] != "p" or parts[1] != "cnf":
                 raise ValueError(f"line {lineno}: malformed header {line!r}")
             try:
                 declared_vars = int(parts[2])
