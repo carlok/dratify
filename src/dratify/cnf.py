@@ -24,6 +24,7 @@ the way in.
 from __future__ import annotations
 
 import io
+import re
 from typing import Iterable, Iterator, Sequence
 
 from .lits import from_dimacs, to_dimacs
@@ -263,7 +264,7 @@ class CNF:
 
 
 #: Whitespace around a line. `str.strip()` also takes Unicode's, so a no-break
-#: space before a `c` would make a clause line look like a comment.
+#: space before a `c` made a clause line look like a comment, and it was gone.
 _LINE_SPACE = " \t\x0b\x0c"
 
 
@@ -294,6 +295,34 @@ def _refuse_stray_cr(lineno: int, line: str) -> None:
             f"newline, and CR-only line endings are not supported")
 
 
+_TOKEN_SPACE = re.compile(r"[ \t\x0b\x0c]+")
+
+
+def _tokens(line: str) -> list[str]:
+    """Split a line on ASCII whitespace, and nothing else.
+
+    `str.split()` also splits on a no-break space, on U+2003 and on \\x1c, which
+    is text no DIMACS reader accepts. So anything else stays in a token, and
+    `_int` refuses it. The first test is the fast path: a line of printable ASCII
+    has no whitespace but spaces, and that is nearly every line of a real proof.
+    """
+    if line.isascii() and line.isprintable():
+        return line.split()
+    return _TOKEN_SPACE.split(line)
+
+
+def _int(tok: str) -> int:
+    """``-?[0-9]+``, or ValueError.
+
+    `int()` is too kind for this: it reads ``1_0`` as 10, takes ``+1``, and takes
+    digits from every script Unicode has, so ARABIC-INDIC ZERO ended a clause.
+    """
+    digits = tok[1:] if tok[:1] == "-" else tok
+    if not (digits.isascii() and digits.isdigit()):
+        raise ValueError(f"not an integer: {tok!r}")
+    return int(tok)
+
+
 def parse_dimacs(text: str, strict: bool = False) -> CNF:
     """Parse DIMACS CNF text.
 
@@ -305,7 +334,8 @@ def parse_dimacs(text: str, strict: bool = False) -> CNF:
 
     A line ends at a newline, with CRLF accepted; anything else inside a comment
     stays in the comment.  Pass text that kept its line endings:
-    `parse_dimacs_file` does, and `Path.read_text()` does not.
+    `parse_dimacs_file` does, and `Path.read_text()` does not.  Tokens are
+    separated by ASCII whitespace, and an integer is ``-?[0-9]+``.
     """
     f = CNF()
     declared_vars = declared_clauses = None
@@ -335,12 +365,12 @@ def parse_dimacs(text: str, strict: bool = False) -> CNF:
             # Exactly `p cnf <vars> <clauses>`. Looking at one character and
             # setting only a minimum length let `p cnf 1 1 -1 0` lose a clause
             # to the header and `pq cnf 1 1` pass for one.
-            parts = line.split()
+            parts = _tokens(line)
             if len(parts) != 4 or parts[0] != "p" or parts[1] != "cnf":
                 raise ValueError(f"line {lineno}: malformed header {line!r}")
             try:
-                declared_vars = int(parts[2])
-                declared_clauses = int(parts[3])
+                declared_vars = _int(parts[2])
+                declared_clauses = _int(parts[3])
             except ValueError:
                 raise ValueError(
                     f"line {lineno}: malformed header {line!r}") from None
@@ -365,9 +395,9 @@ def parse_dimacs(text: str, strict: bool = False) -> CNF:
             if declared_vars > f.nvars:
                 f.nvars = declared_vars
             continue
-        for tok in line.split():
+        for tok in _tokens(line):
             try:
-                d = int(tok)
+                d = _int(tok)
             except ValueError:
                 raise ValueError(f"line {lineno}: bad token {tok!r}") from None
             if d == 0:

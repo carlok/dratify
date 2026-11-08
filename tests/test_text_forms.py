@@ -184,5 +184,67 @@ class TestAHeaderIsFourTokens(unittest.TestCase):
         self.assertEqual(f.clauses, [ONE])
 
 
+class TestTokensAreAscii(unittest.TestCase):
+    """`int()` and `str.split()` accept far more than a DIMACS reader does."""
+
+    NOT_INTEGERS = ("1_0", "\u0663", "\uff11", "+1", "1.0", "0x1", "--1", "-", "1-")
+
+    def test_dimacs_refuses_them(self):
+        for tok in self.NOT_INTEGERS:
+            with self.subTest(tok=tok), self.assertRaises(ValueError) as cm:
+                parse_dimacs(f"p cnf 16 2\n1 0\n{tok} 0\n")
+            self.assertIn("line 3", str(cm.exception))
+
+    def test_a_proof_refuses_them(self):
+        for tok in self.NOT_INTEGERS:
+            for text in (f"1 0\n{tok} 0\n", f"1 0\nd{tok} 0\n"):
+                with self.subTest(text=text), self.assertRaises(ValueError) as cm:
+                    parse_proof(text)
+                self.assertIn("line 2", str(cm.exception))
+
+    def test_a_zero_in_another_script_does_not_end_a_clause(self):
+        for text in ("p cnf 1 1\n1 \u0660\n",):
+            with self.assertRaises(ValueError):
+                parse_dimacs(text)
+        with self.assertRaises(ValueError):
+            parse_proof("1 \u0660\n")
+
+    def test_a_header_refuses_them(self):
+        for text in ("p cnf 1_0 1\n1 0\n", "p cnf \u0663 1\n1 0\n",
+                     "p cnf +1 1\n1 0\n", "p cnf 1 1_0\n1 0\n"):
+            with self.subTest(text=text), self.assertRaises(ValueError) as cm:
+                parse_dimacs(text)
+            self.assertIn("malformed header", str(cm.exception))
+
+    def test_only_ascii_whitespace_separates(self):
+        for sep in ("\xa0", "\u2003", "\x1c", "\x1d", "\x1e", "\x1f", "\x85",
+                    "\u2028"):
+            with self.subTest(sep=repr(sep)):
+                with self.assertRaises(ValueError):
+                    parse_dimacs(f"p cnf 2 1\n1{sep}2 0\n")
+                with self.assertRaises(ValueError):
+                    parse_proof(f"1{sep}2 0\n")
+                with self.assertRaises(ValueError):
+                    parse_dimacs(f"p{sep}cnf 1 1\n1 0\n")
+
+    def test_a_no_break_space_cannot_hide_a_clause_as_a_comment(self):
+        with self.assertRaises(ValueError) as cm:
+            parse_dimacs("p cnf 1 1\n1 0\n\xa0c -1 0\n")
+        self.assertIn("line 3", str(cm.exception))
+        with self.assertRaises(ValueError):
+            parse_proof("\xa0c 1 0\n")
+
+    def test_what_was_always_fine_still_is(self):
+        f = parse_dimacs("p cnf 2 1\n\t01 \x0b -02\x0c00 \n", strict=True)
+        self.assertEqual(f.clauses, [(0, 3)])
+        self.assertEqual(parse_dimacs("1 -0\n").clauses, [ONE], "-0 is a zero")
+        self.assertEqual(parse_dimacs("c \xa0 x\n1 0\n").comments, ["\xa0 x"])
+        self.assertEqual(parse_dimacs("  c x\n1 0\n").comments, ["x"])
+        self.assertEqual(parse_dimacs("1 2\n").clauses, [(0, 2)],
+                         "a missing final 0 is tolerated in lenient mode")
+        self.assertEqual(parse_proof("-1 -0 d-1 2 00\n"),
+                         [("a", (1,)), ("d", (1, 2))])
+
+
 if __name__ == "__main__":
     unittest.main()
