@@ -62,6 +62,18 @@ class TestTheClassValidatesSteps(unittest.TestCase):
             with self.subTest(lit=lit), self.assertRaises(ValueError):
                 DRATChecker(parse_dimacs(ONE)).check_step("a", (lit,))
 
+    def test_literals_need_an_order(self):
+        for lits in (frozenset({0, 3}), {0, 3}, 5, None, iter((0, 3))):
+            with self.subTest(lits=lits), self.assertRaises(ValueError) as cm:
+                DRATChecker(parse_dimacs(ONE)).check_step("a", lits)
+            self.assertIn("(kind, literals)", str(cm.exception))
+
+    def test_a_step_that_is_not_a_step(self):
+        for step in (5, ("a",), ("a", (0,), 1), ["a", (0,)], ("a", {0})):
+            with self.subTest(step=step), self.assertRaises(ValueError) as cm:
+                DRATChecker(parse_dimacs(ONE)).check([step])
+            self.assertIn("(kind, literals)", str(cm.exception))
+
     def test_well_formed_steps_still_work(self):
         c = DRATChecker(parse_dimacs("p cnf 2 4\n1 2 0\n1 -2 0\n-1 2 0\n-1 -2 0\n"))
         self.assertTrue(c.check_step("a", (0,)))
@@ -174,6 +186,18 @@ class TestCheckProofValidatesTheFormula(unittest.TestCase):
         f = CNF(1 << 40)
         with self.assertRaises(ValueError):
             self.check(f, [("a", (1 << 33,))])
+
+    def test_literals_need_an_order(self):
+        """A set has no first literal, and the first literal is the RAT pivot.
+
+        (1 -2) against (-1 2) is RAT on 1 only, so whether it passes is the
+        order a set happens to iterate in.
+        """
+        f = parse_dimacs("p cnf 2 1\n-1 2 0\n")
+        for lits in (frozenset({0, 3}), {0, 3}, 5, None):
+            with self.subTest(lits=lits), self.assertRaises(ValueError) as cm:
+                self.check(f, [("a", lits)])
+            self.assertIn("(kind, literals)", str(cm.exception))
 
     def test_a_repeat_on_the_clauses_is_the_same_clause(self):
         """`CNF.add` drops repeats, so only a direct write can get here."""

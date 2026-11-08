@@ -76,6 +76,12 @@ crate. The two are released together and are meant to be a matching pair; from
   now skips the proof, a second piece of a proof is read, and a proof that is over is
   not read further, on both checkers. Found by the soundness campaign.
 
+- A step whose literals were a set, or not a collection at all, raised `TypeError` on
+  Python and got a verdict from native, in whatever order the set iterated. A set has
+  no first literal and the first literal is the RAT pivot, so all of these raise
+  `ValueError` on both, as a malformed step already did. Found by the soundness
+  campaign.
+
 ### Changed
 
 - Tokens are what a DIMACS reader takes them to be, in both parsers: separated by

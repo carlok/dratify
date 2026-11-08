@@ -647,6 +647,7 @@ class DRATChecker:
         Python reads a negative index from the end of an array, so an unchecked
         literal is not an error here, it is a wrong answer.
         """
+        _validate_shape((kind, lits))
         self._mentioned += len(lits)
         nvars = self.formula.nvars
         _validate_step(self.result.steps + 1, kind, lits, nvars,
@@ -740,7 +741,7 @@ class DRATChecker:
             self._root_conflict = True
 
     def check(self, steps: Iterable[tuple[str, Sequence[int]]]) -> CheckResult:
-        return self._replay(steps, self.check_step)
+        return self._replay(map(_validate_shape, steps), self.check_step)
 
     def _replay(self, steps, step) -> CheckResult:
         """Read ``steps`` and conclude, on a checker that may already be in use.
@@ -823,6 +824,20 @@ def _literal_limit(nvars: int, occurrences: int) -> int:
     return min(nvars + max(occurrences, HEADER_VARS_FLOOR), _MAX_VARS)
 
 
+def _validate_shape(step):
+    """A step is a 2-tuple, and its literals have an order: the first is the pivot.
+
+    A set passed the loop over its literals, and then Python raised TypeError at
+    `lits[0]` while native took whatever order `list()` gave it.
+    """
+    if not (isinstance(step, tuple) and len(step) == 2
+            and isinstance(step[1], (tuple, list))):
+        raise ValueError(
+            f"a proof step must be (kind, literals), with the literals a tuple "
+            f"or a list; got {step!r}")
+    return step
+
+
 def _validate_step(i: int, kind, lits, nvars: int, limit: int) -> None:
     """One step, numbered ``i``, with literals naming at most ``limit`` variables."""
     if kind not in ("a", "d"):
@@ -860,10 +875,7 @@ def _validate_steps(formula: CNF, steps: list) -> None:
     """
     occurrences = 0
     for step in steps:
-        if not (isinstance(step, tuple) and len(step) == 2):
-            raise ValueError(
-                f"a proof step must be (kind, literals); got {step!r}")
-        occurrences += len(step[1])
+        occurrences += len(_validate_shape(step)[1])
     limit = _literal_limit(formula.nvars, occurrences)
     for i, (kind, lits) in enumerate(steps, 1):
         _validate_step(i, kind, lits, formula.nvars, limit)
