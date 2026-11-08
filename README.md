@@ -279,8 +279,11 @@ was aimed; it runs in the suite and in the weekly fuzzer.
   and in proofs. `1_0`, `+1`, Unicode digits and a no-break space raise.
 - Deletion follows `drat-trim`'s operational reading for reason clauses (Rebola-Pardo
   and Biere, 2018), not the specified one, approximated by the root-unit test: a
-  clause that only looks like a reason is kept as well. A proof that relies on such
-  a clause being gone can be rejected.
+  clause that only looks like a reason is kept as well. A proof that relies on a
+  real reason being gone can be rejected. Keeping a look-alike changes the deletion
+  counters and, as far as the campaign could find, no verdict: its literals are all
+  decided at the root, so it never propagates, and the reason it duplicates forces
+  the same RAT check.
 - No binary DRAT format yet; text proofs only.
 - Not formally verified. It is carefully written, differentially tested against
   a second implementation, and cross-validated against `drat-trim` — which is
