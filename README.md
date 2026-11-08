@@ -165,8 +165,12 @@ check_proof(formula, proof, engine="auto")     # default: native when present
 - **RAT** (resolution asymmetric tautology) — the "A" in DRAT, checked properly:
   pivot on the first literal, resolvent against every clause containing its
   negation, RUP on each.
-- **Deletion**, applied by default. Deletion is monotone-safe for RUP; RAT is
-  not monotone, so RAT steps are checked against exactly the clauses present.
+- **Deletion**, applied by default, except for a clause that is unit under the
+  root assignment: one literal true and the rest false. That deletion is ignored
+  and counted in `ignored_deletions`, because every clause that propagated a root
+  literal has that shape and the root assignment is not undone. Ignoring a
+  deletion is sound for an UNSAT certificate. RAT is not monotone, so RAT steps
+  are checked against the clauses present, ignored deletions included.
 
 Checking is **forward**: every step is verified, rather than working backwards
 from the empty clause as `drat-trim` does. That makes it slower on large proofs
@@ -261,6 +265,10 @@ was aimed; it runs in the suite and in the weekly fuzzer.
 ## Honest limitations
 
 - Forward checking only. Backward checking would close the large-proof gap.
+- Deletion follows `drat-trim`'s operational reading for reason clauses (Rebola-Pardo
+  and Biere, 2018), not the specified one, approximated by the root-unit test: a
+  clause that only looks like a reason is kept as well. A proof that relies on such
+  a clause being gone can be rejected.
 - No binary DRAT format yet; text proofs only.
 - Not formally verified. It is carefully written, differentially tested against
   a second implementation, and cross-validated against `drat-trim` — which is

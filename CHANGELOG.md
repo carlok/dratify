@@ -12,6 +12,25 @@ crate. The two are released together and are meant to be a matching pair; from
 
 ## [Unreleased]
 
+### Fixed
+
+- **A refutation of a satisfiable formula was accepted, on both engines.**
+  `(1) (-1 2)` with the proof `d -1 2 0`, `-2 0`, `0` returned `ok=True`. The
+  deletion erased the clause that was the reason for 2 and left 2 true at the
+  root, because only clauses of at most one literal were spared. So `(-2)` passed
+  as vacuously RAT, was found false at the root and set the root conflict, and the
+  empty clause passed on that. A deletion is now ignored when the clause, as a
+  set, is unit under the root assignment: exactly one literal true and all the
+  others false. Every reason clause has that shape, so every root literal stays
+  supported by a live clause. Such a deletion counts in `ignored_deletions` and the
+  clause stays in place for RUP and RAT alike. Once the root has conflicted, every
+  deletion is ignored, because the assignment there depends on watch order. With
+  `apply_deletions=False`, nothing changes. Found by the soundness campaign.
+
+### Changed
+
+- `CheckResult.report()` no longer calls every ignored deletion a unit deletion.
+
 ### Tests
 
 - CI has a `lint` job that byte-compiles `src`, `tests` and `bench` on Python
