@@ -1,0 +1,83 @@
+{
+  "corner": "ok_empty",
+  "seeds": [
+    20261108
+  ],
+  "instances": 2821,
+  "steps": 79440,
+  "per_category_counts": {
+    "compared_python_native": 22568,
+    "route_text": 22568,
+    "route_list": 22568,
+    "route_memory": 11284,
+    "oracle_steps_judged": 79440,
+    "ok_true_on_unsat": 6222,
+    "rejected_steps_agreeing": 3744,
+    "accepted_only_by_rat": 1622,
+    "deletions_applied": 7394,
+    "deletions_ignored": 1490,
+    "truncated_no_empty_rejected": 13052,
+    "truncated_after_top_level_conflict": 6572,
+    "byte_cut_raised": 1134,
+    "byte_cut_judged": 628,
+    "tail_instances": 1280,
+    "tail_steps": 3900,
+    "tail_additions_not_acceptable_before_empty": 80,
+    "tail_deletions": 1164,
+    "tail_second_empty": 828,
+    "tail_malformed_raised": 1000,
+    "delete_empty_steps": 1046,
+    "delete_empty_not_a_refutation": 56,
+    "empty_step_rejected": 1444,
+    "empty_step_accepted": 3964,
+    "sat_formula_checks": 3192,
+    "sat_formula_empty_attempted": 1582,
+    "reason_deletion_then_rat_attempted": 1416,
+    "unit_deletion_then_negation_rejected": 192,
+    "up_refuted_input_checks": 2120,
+    "up_refuted_input_with_invalid_step": 1848,
+    "input_contains_empty_clause": 536,
+    "repeated_literal_rejections": 164,
+    "accepted_beyond_length_one_retained": 306,
+    "accepted_beyond_length_one_after_real_conflict": 10,
+    "sat_breaking_step_accepted": 178,
+    "retained_on_unsat_formula": 128
+  },
+  "mismatches": {
+    "ok_empty-1: accepted a step that breaks satisfiability": 178,
+    "ok_empty-1: ok=True on a satisfiable formula": 178,
+    "ok_empty-2: python vs native: fields differ (failed_clause)": 82
+  },
+  "runtime_seconds": 61.1,
+  "findings": [
+    {
+      "id": "ok_empty-1",
+      "severity": "Critical",
+      "summary": "ok=True on a satisfiable formula, both engines: deleting a root literal's reason keeps the literal but removes the RAT candidate, so its negation passes as RAT and refutes."
+    },
+    {
+      "id": "ok_empty-2",
+      "severity": "Bug",
+      "summary": "failed_clause differs between engines when the failing step repeats a literal: Python removes repeats, the native wrapper returns the raw step."
+    },
+    {
+      "id": "ok_empty-3",
+      "severity": "Note",
+      "summary": "A top-level conflict is permanent: the clauses behind it can be deleted and `0` still passes, as in the operational flavour, not length-one. The formula is unsatisfiable, so no wrong verdict."
+    },
+    {
+      "id": "ok_empty-4",
+      "severity": "Note",
+      "summary": "Where a refutation ends: conflict without a written `0` is rejected, and steps after the empty clause, or any proof on a UP-refuted input, are not read, so `steps` stops short."
+    }
+  ],
+  "not_checked": [
+    "drat-trim is not on PATH, so nothing here compares with it; ok_empty-4 describes dratify's behaviour only and asserts nothing about drat-trim.",
+    "Input formulas with tautologies or repeated literals: the parser normalises them and the oracle's multiset would differ. Repeats in proof steps are covered.",
+    "Proofs from real solvers: refutations here come from a small DPLL trace.",
+    "Formulas above 11 variables, and fresh proof variables far above the header (the bound in _validate_steps raises, and is not judged here).",
+    "Non-ASCII digits and underscores in proof tokens, which int() accepts.",
+    "A registered native module that returns a malformed result; that seam is tests/test_untrusted_input.py's.",
+    "cdclkit: this corner is dratify only."
+  ]
+}

@@ -1,0 +1,94 @@
+{
+  "corner": "root",
+  "seeds": [
+    20261108
+  ],
+  "instances": 72240,
+  "steps": 365294,
+  "per_category_counts": {
+    "additions_after_root_conflict": 18199,
+    "conflicting_unit_lemma_accepted": 3978,
+    "conflicting_unit_lemma_rejected": 933,
+    "deletions_after_root_conflict": 924,
+    "deletions_applied": 19637,
+    "deletions_ignored_absent": 1351,
+    "deletions_ignored_unit": 4614,
+    "empty_clause_accepted": 3446,
+    "empty_clause_rejected": 4769,
+    "engine_comparisons": 486720,
+    "exhaustive_instances": 42240,
+    "exhaustive_satisfiable": 35584,
+    "family:fam_conflicting_units": 3750,
+    "family:fam_implication_chain": 3750,
+    "family:fam_input_empty": 3750,
+    "family:fam_lemma_refutable": 3750,
+    "family:fam_planted": 3750,
+    "family:fam_random_root": 3750,
+    "family:fam_tautology_in_input": 3750,
+    "family:fam_up_refutable": 3750,
+    "input_conflicting_units": 4627,
+    "input_empty_clause": 3750,
+    "input_not_refuted_at_root": 16513,
+    "input_refuted_at_root": 13487,
+    "input_refuted_proof_ignored": 13417,
+    "input_tautology_dropped": 3750,
+    "input_up_refutable_otherwise": 5176,
+    "instances": 30000,
+    "lemma_fresh_variable": 3070,
+    "lemma_repeated_literal": 4159,
+    "lemma_satisfied_at_root": 18221,
+    "lemma_tautological": 2103,
+    "lemma_triggers_root_conflict": 3489,
+    "lemma_unit_at_root": 6653,
+    "lemma_unit_literal": 18295,
+    "proof_not_a_refutation": 13067,
+    "rat_lemma_falsified_on_retracted_root": 535,
+    "reason_deletions": 5545,
+    "refutation_valid": 3446,
+    "runs_deletions_off": 60000,
+    "runs_rup_only": 60000,
+    "sat_instances": 12720,
+    "sat_with_empty_clause_attempt": 4496,
+    "steps_accepted_only_by_rat": 14374,
+    "steps_default_mode": 83701,
+    "steps_judged": 365294,
+    "steps_rejected": 6576,
+    "unsat_instances": 17280
+  },
+  "mismatch_labels": {
+    "engine:failed_clause": 4834,
+    "stale-root:counts-differ": 1055,
+    "stale-root:false-refutation": 425,
+    "stale-root:accepted-not-rup-or-rat": 67,
+    "stale-root:accepted-not-sat-preserving": 58,
+    "stale-root:accepted-empty-unjustified": 2
+  },
+  "runtime_seconds": 60.0,
+  "findings": [
+    {
+      "id": "root-1",
+      "severity": "Critical",
+      "summary": "Deleting a clause that is the reason for a root literal leaves that literal assigned: both engines return ok=True on the satisfiable (1)(-1 2) with `d -1 2 0`, `-2 0`, `0`."
+    },
+    {
+      "id": "root-2",
+      "severity": "Bug",
+      "summary": "failed_clause differs between engines when a rejected step repeats a literal: Python has it deduplicated, native raw."
+    },
+    {
+      "id": "root-3",
+      "severity": "Note",
+      "summary": "Root refutation ends the checking: a UP-refuted input ignores the proof entirely, and a deletion after a root conflict does not un-refute. Sound, and how drat-trim reads it."
+    }
+  ],
+  "not_checked": [
+    "resolvents_checked against the oracle: it is only compared between engines",
+    "agreement with drat-trim: the binary is not used here, flavours come from the oracle",
+    "the `is_pseudo_unit` over-approximation: a result matching the oracle's `operational` flavour passes even where drat-trim's reason test would differ",
+    "input clauses reaching the checker with repeated literals other than through parse_dimacs (CNF.add normalises; a hand-built CNF is not tried)",
+    "engine='auto' and MemoryProof (text and lists of steps are)",
+    "formulas above about 11 variables, and proofs above about 16 steps",
+    "non-chronological fresh variables (a gap in a list of steps trips the _validate_steps bound, a documented guard, not this corner)",
+    "cdclkit: this generator is aimed at dratify's checker only"
+  ]
+}
