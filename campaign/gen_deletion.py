@@ -12,14 +12,14 @@ are reordered or repeated. Every family runs on both engines and in all four
 combinations of ``check_rat`` and ``apply_deletions``.
 
 What counts as right comes from ``campaign.oracle`` and from what dratify
-documents, which is the oracle's ``length-one`` reading: "Deletion lines are
-honoured, with the one exception that deletions of unit clauses are ignored".
-The walk below keeps that multiset, ``M``, and judges each step against it.
+documents, which is the oracle's ``operational`` reading: a deletion is ignored
+when the clause is unit under the root assignment, and every deletion is ignored
+once the root has conflicted. The walk below keeps that multiset, ``M``, and
+judges each step against it.
 
-The walk also keeps ``S``, every literal top-level propagation has ever
-derived, because dratify never retracts its root assignment. ``S`` is used to
-*label* a mismatch as a known finding, never to excuse one: known findings
-remain mismatches and the run exits non-zero until they are fixed.
+The findings this was written to catch are fixed. Their labels are gone from
+``KNOWN``, so if one comes back it reads UNEXPLAINED and fails the run, and the
+self-test's ``length_only`` stub is the old rule, which must be flagged.
 """
 
 from __future__ import annotations
@@ -48,30 +48,23 @@ FAMILIES = ("reason", "multiset", "readd", "reorder", "absent", "unit",
             "refute", "mixed")
 
 #: what the labels on mismatches refer to, in campaign/findings/
-KNOWN = {
-    "ok_on_sat_after_stale_pivot": "deletion-1",
-    "breaks_sat_after_stale_pivot": "deletion-1",
-    "accepted_downstream_of_stale_pivot": "deletion-1",
-    "not_acceptable_on_present_clauses": "deletion-2",
-    "rat_step_counted_as_rup": "deletion-2",
-    "failed_clause_keeps_repeats": "deletion-3",
-}
+KNOWN: dict[str, str] = {}
 
 FINDINGS = [
-    {"id": "deletion-1", "severity": "Critical",
+    {"id": "deletion-1", "status": "fixed", "severity": "Critical",
      "summary": "ok=True on a satisfiable formula, both engines: deleting a "
                 "reason clause leaves its literal in the root assignment but "
                 "removes it from the RAT candidates, so a clause falsified at "
                 "the root passes as vacuously RAT. (1)(-1 2), `d -1 2 0, -2 0, 0`"},
-    {"id": "deletion-2", "severity": "Bug",
+    {"id": "deletion-2", "status": "fixed", "severity": "Bug",
      "summary": "Both engines accept, and count as RUP, a clause not RUP or RAT "
                 "on the clauses present, using a literal whose reason was "
                 "deleted; docs say clauses present. Same root cause; implied by "
                 "the input, so it does not by itself refute anything"},
-    {"id": "deletion-3", "severity": "Bug",
+    {"id": "deletion-3", "status": "fixed", "severity": "Bug",
      "summary": "Engines disagree on failed_clause when the failing step "
                 "repeats a literal: Python removes repeats, native keeps them"},
-    {"id": "deletion-4", "severity": "Note",
+    {"id": "deletion-4", "status": "fixed", "severity": "Note",
      "summary": "ignored_deletions also counts deletions of clauses not present, "
                 "including input tautologies CNF.add dropped, while report() "
                 "calls them all unit deletions"},
@@ -84,8 +77,7 @@ NOT_CHECKED = [
     "real solver proofs (cadical, kissat): every proof here is generated",
     "drat-trim itself: it is not on PATH, so its behaviour is taken from the "
     "oracle's operational flavour, which over-approximates its reason test",
-    "the operational flavour is not replayed step by step; dratify documents "
-    "length-one",
+    "the specified and length-one flavours: dratify documents operational",
     "formulas above 10 variables, and long proofs: these are tiny by design",
     "the Rust crate's own API other than through cdclkit_native and "
     "check_proof, so Checker::check_step is reached only via check",
@@ -463,7 +455,7 @@ class Real:
 class Stub:
     """A checker written from the oracle, correct unless told to be otherwise.
 
-    ``flaw`` picks what is wrong with it. With no flaw it is the length-one
+    ``flaw`` picks what is wrong with it. With no flaw it is the operational
     reading done by definition, and the harness must find nothing to say.
     """
 
@@ -528,6 +520,10 @@ class Stub:
             else:
                 m.remove(hit)
                 r.deletions += 1
+            return
+        if (len(clause) > 1 and flaw != "length_only"
+                and (oracle.propagate(m)[0] or oracle.is_pseudo_unit(m, clause))):
+            r.ignored_deletions += 1
             return
         remaining, present = oracle.remove_one(m, clause)
         if flaw == "delete_all_copies" and present:
@@ -660,7 +656,7 @@ def _judge_walk(ta, inst, cnf, full, runner, input_clauses, sat, check_rat,
             return stale_pivot_seen
         if kind == "d":
             ta.counts["deletions_walked"] += 1
-            _judge_deletion(ta, inst, r, prev, m, s, list(lits), clause,
+            _judge_deletion(ta, inst, r, prev, m, conflict, list(lits), clause,
                             apply_deletions, deleted_keys, ctx, k)
             if r.failed_step != -1:
                 ta.flag("rejected_a_deletion", inst, f"{ctx}: step {k}")
@@ -727,13 +723,13 @@ def _judge_walk(ta, inst, cnf, full, runner, input_clauses, sat, check_rat,
             else:
                 ta.flag("unexplained_acceptance", inst, f"{ctx}: step {k}: {clause}")
 
-        # A RAT step whose pivot is false at the root, its reason gone. By the
-        # definition, on M, this step is fine: it is counted and not flagged.
-        # What goes wrong is what a checker that keeps the root does next, and
-        # that is judged at the later steps and at the end. This only labels it.
+        # A RAT step whose pivot is false at the root. The clause that made it
+        # false is still present, because a reason is never deleted, and its
+        # resolvent is not RUP. So this cannot pass: it is what let a satisfiable
+        # formula be refuted when a reason could be erased.
         if grew_rat and clause and -clause[0] in s:
             stale_pivot_seen = True
-            ta.counts["accepted_rat_pivot_false_at_root"] += 1
+            ta.flag("rat_pivot_false_at_root", inst, f"{ctx}: step {k}: {clause}")
 
         if not oracle.preserves_sat(m, clause):
             if stale_pivot_seen:
@@ -761,8 +757,8 @@ def _judge_walk(ta, inst, cnf, full, runner, input_clauses, sat, check_rat,
     return stale_pivot_seen
 
 
-def _judge_deletion(ta, inst, r, prev, m, s, written, clause, apply_deletions,
-                    deleted_keys, ctx, k):
+def _judge_deletion(ta, inst, r, prev, m, conflict, written, clause,
+                    apply_deletions, deleted_keys, ctx, k):
     grew_del = r.deletions - prev.deletions
     grew_ign = r.ignored_deletions - prev.ignored_deletions
     if len(written) != len(clause):
@@ -775,6 +771,13 @@ def _judge_deletion(ta, inst, r, prev, m, s, written, clause, apply_deletions,
     elif not apply_deletions:
         ta.counts["deletions_off"] += 1
         expect = (0, 0)
+    elif conflict:
+        ta.counts["deletions_after_root_conflict"] += 1
+        expect = (0, 1)
+    elif oracle.is_pseudo_unit(m, clause):
+        expect = (0, 1)
+        if oracle.remove_one(m, clause)[1]:
+            ta.counts["deletions_of_reason_clauses"] += 1
     else:
         remaining, present = oracle.remove_one(m, clause)
         if present:
@@ -788,8 +791,6 @@ def _judge_deletion(ta, inst, r, prev, m, s, written, clause, apply_deletions,
             stored = next(c for c in m if _key(c) == _key(clause))
             if stored != clause:
                 ta.counts["deletions_reordered"] += 1
-            if _unit_under(clause, s):
-                ta.counts["deletions_of_reason_clauses"] += 1
             m[:] = remaining
             deleted_keys.add(_key(clause))
         else:
@@ -840,7 +841,7 @@ CLAIMED = (
     "readd_accepted", "readd_rejected",
     "ok_true_on_unsat", "ok_false_on_unsat", "ok_false_on_sat",
     "root_conflict_reached", "formulas_with_a_dropped_tautology",
-    "input_refuted_by_up", "accepted_rat_pivot_false_at_root",
+    "input_refuted_by_up", "deletions_after_root_conflict",
 )
 
 
@@ -871,7 +872,7 @@ def self_test() -> int:
     failed = 0
     reference = Stub()
     ta = sweep(1, n, (reference, reference))
-    print(f"reference (length-one by definition): "
+    print(f"reference (operational by definition): "
           f"{sum(ta.mismatches.values())} mismatches, {ta.steps} steps")
     if ta.mismatches:
         failed += 1
@@ -885,6 +886,7 @@ def self_test() -> int:
                                "false_rejection"}),
         ("order_sensitive", {"deletion_counters"}),
         ("honour_unit_deletions", {"deletion_counters"}),
+        ("length_only", {"deletion_counters", "ok_on_sat"}),
         ("never_delete", {"deletion_counters", "unexplained_acceptance"}),
         ("truncated_ok", {"ok_without_empty"}),
     ):

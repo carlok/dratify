@@ -4,18 +4,18 @@
     1
   ],
   "instances": 1593,
-  "steps": 9452,
+  "steps": 9378,
   "per_category_counts": {
-    "additions_rat_only": 806,
-    "additions_rup": 5540,
-    "additions_unacceptable": 807,
-    "deletions_absent": 167,
-    "deletions_applied": 1862,
-    "deletions_ignored_as_unit": 270,
+    "additions_rat_only": 717,
+    "additions_rup": 5569,
+    "additions_unacceptable": 803,
+    "deletions_absent": 166,
+    "deletions_applied": 1395,
+    "deletions_ignored_as_unit": 728,
     "deletions_shrinking_the_root": 170,
-    "dratify_ok": 597,
-    "dratify_rejected": 996,
-    "dratify_rejected_a_step": 752,
+    "dratify_ok": 546,
+    "dratify_rejected": 1047,
+    "dratify_rejected_a_step": 803,
     "family_dpll": 200,
     "family_mutant": 200,
     "family_rat_aim": 200,
@@ -24,48 +24,37 @@
     "family_syntax": 200,
     "family_unit_aim": 200,
     "family_walk": 200,
-    "follows_dratify_mismatch": 204,
     "formulas_satisfiable": 945,
     "formulas_unsatisfiable": 648,
     "instances": 1593,
-    "mismatch_field_mismatch": 18,
-    "mismatch_ok_on_satisfiable": 102,
-    "mismatch_rup_not_implied": 93,
     "note_backward_skips_unused": 8,
     "note_deletion_flavour": 66,
     "note_implicit_empty_clause": 112,
-    "note_sticky_refutation": 4,
     "proofs_from_cadical": 108,
     "proofs_from_kissat": 85,
     "proofs_with_implicit_empty_clause": 28,
-    "rate_bwd_skip_agree": 1510,
-    "rate_bwd_skip_disagree": 83,
-    "rate_bwd_skip_dratify_accepts_it_rejects": 51,
-    "rate_bwd_skip_follows_dratify_mismatch": 51,
+    "rate_bwd_skip_agree": 1561,
+    "rate_bwd_skip_disagree": 32,
     "rate_bwd_skip_it_accepts_dratify_rejects": 32,
     "rate_bwd_skip_note_backward_skips_unused": 4,
     "rate_bwd_skip_note_implicit_empty_clause": 28,
     "rate_bwd_skip_run": 1593,
-    "rate_bwd_spec_agree": 1477,
-    "rate_bwd_spec_disagree": 116,
-    "rate_bwd_spec_dratify_accepts_it_rejects": 84,
-    "rate_bwd_spec_follows_dratify_mismatch": 51,
+    "rate_bwd_spec_agree": 1528,
+    "rate_bwd_spec_disagree": 65,
+    "rate_bwd_spec_dratify_accepts_it_rejects": 33,
     "rate_bwd_spec_it_accepts_dratify_rejects": 32,
     "rate_bwd_spec_note_backward_skips_unused": 4,
     "rate_bwd_spec_note_deletion_flavour": 33,
     "rate_bwd_spec_note_implicit_empty_clause": 28,
     "rate_bwd_spec_run": 1593,
-    "rate_fwd_skip_agree": 1514,
-    "rate_fwd_skip_disagree": 79,
-    "rate_fwd_skip_dratify_accepts_it_rejects": 51,
-    "rate_fwd_skip_follows_dratify_mismatch": 51,
+    "rate_fwd_skip_agree": 1565,
+    "rate_fwd_skip_disagree": 28,
     "rate_fwd_skip_it_accepts_dratify_rejects": 28,
     "rate_fwd_skip_note_implicit_empty_clause": 28,
     "rate_fwd_skip_run": 1593,
-    "rate_fwd_spec_agree": 1481,
-    "rate_fwd_spec_disagree": 112,
-    "rate_fwd_spec_dratify_accepts_it_rejects": 84,
-    "rate_fwd_spec_follows_dratify_mismatch": 51,
+    "rate_fwd_spec_agree": 1532,
+    "rate_fwd_spec_disagree": 61,
+    "rate_fwd_spec_dratify_accepts_it_rejects": 33,
     "rate_fwd_spec_it_accepts_dratify_rejects": 28,
     "rate_fwd_spec_note_deletion_flavour": 33,
     "rate_fwd_spec_note_implicit_empty_clause": 28,
@@ -75,9 +64,9 @@
     "solver_proofs_with_a_deletion": 55,
     "solver_unsat_proofs_rate_fwd_skip_rejects": 0,
     "solver_unsat_proofs_rate_fwd_spec_rejects": 0,
-    "steps_judged": 9452
+    "steps_judged": 9378
   },
-  "runtime_seconds": 118.8,
+  "runtime_seconds": 79.4,
   "external_checkers": {
     "rate": "rate 0.3.0",
     "rate_modes": {
@@ -91,8 +80,9 @@
   "findings": [
     {
       "id": "drat_trim-1",
+      "status": "fixed",
       "severity": "Critical",
-      "summary": "dratify keeps a literal in the root assignment after deleting the only clause implying it, on both engines, so it returns ok=True on satisfiable formulas"
+      "summary": "dratify kept a literal in the root assignment after deleting the only clause implying it, on both engines, so it returned ok=True on satisfiable formulas"
     },
     {
       "id": "drat_trim-2",
@@ -108,33 +98,9 @@
       "id": "drat_trim-4",
       "severity": "Note",
       "summary": "rate's backward modes verify proofs with an invalid unused lemma; dratify and rate -f reject them, as the README documents"
-    },
-    {
-      "id": "drat_trim-5",
-      "severity": "Note",
-      "summary": "once propagation has refuted the clauses, dratify keeps treating them as refuted after a deletion undoes the conflict; sound, and rate agrees"
     }
   ],
-  "mismatch_kinds": [
-    {
-      "severity": "Bug",
-      "kind": "field_mismatch",
-      "finding": "drat_trim-1",
-      "count": 18
-    },
-    {
-      "severity": "Critical",
-      "kind": "ok_on_satisfiable",
-      "finding": "drat_trim-1",
-      "count": 102
-    },
-    {
-      "severity": "Critical",
-      "kind": "rup_not_implied",
-      "finding": "drat_trim-1",
-      "count": 93
-    }
-  ],
+  "mismatch_kinds": [],
   "not_checked": [
     "drat-trim itself: not installed, no package install provides it, and its source is on GitHub, outside this campaign's network rule. Its invocation and stdout parsing were exercised only against shell stubs in --self-test.",
     "rate with no -p flag, where it tries every literal as a pivot",

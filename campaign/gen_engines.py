@@ -7,14 +7,14 @@ For each random formula and proof, and each of (check_rat, apply_deletions):
 1. the two engines must agree on every field;
 2. ``ok=True`` must mean the oracle finds the formula unsatisfiable;
 3. each engine must match a reference built on the oracle's ``rup`` and ``rat``
-   under the semantics dratify documents: every deletion happens, except that
-   a clause with at most one distinct literal stays (the oracle's "length-one"
-   flavour), and the proof is over once top-level propagation conflicts.
+   under the semantics dratify documents: a clause unit under the top-level
+   assignment stays (the oracle's "operational" flavour), and the proof is over
+   once top-level propagation conflicts.
 
 When an engine differs from that reference it is compared with a second one,
-which also keeps every literal once assigned at the top level, after the clause
-that implied it is deleted. That is what dratify does, so a mismatch explained
-by it is labelled engines-1. It is still a mismatch and the run still fails.
+which spares clauses by length alone and keeps every literal once assigned at the
+top level. That was dratify's bug, engines-1, so a mismatch it explains says
+`retained-root`. It carries no finding: it fails the run as a regression.
 
     python -m campaign.gen_engines [--seed N] [--instances N] [--write-results]
     python -m campaign.gen_engines --self-test
@@ -68,7 +68,7 @@ REQUIRED = (
     "instances", "steps_judged", "field_comparisons",
     "accepted", "rejected", "accepted_by_a_proof",
     "accepted_by_a_proof_with_rat", "accepted_by_a_proof_with_deletion",
-    "sticky_additions_past_a_deletion", "header_declares_unused_variables",
+    "ignored_past_a_conflict", "header_declares_unused_variables",
     "rejected_after_resolvents_and_deletion",
     "TT.accepted", "TT.rejected", "TF.accepted", "TF.rejected",
     "FT.accepted", "FT.rejected", "FF.accepted", "FF.rejected",
@@ -76,7 +76,7 @@ REQUIRED = (
     "resolvents_checked", "rejected_after_resolvents",
     "rejected_rat_disabled", "rejected_empty_claim",
     "deletions_applied", "ignored_length_le_one", "ignored_absent",
-    "deletions_skipped_by_flag", "root_reason_deleted",
+    "deletions_skipped_by_flag", "root_reason_kept",
     "gen.repeated_literals", "gen.long_repeated_literals", "gen.empty_formula",
     "gen.repeat_step", "gen.garbage",
     "gen.fresh_variable", "gen.tautological_lemma", "gen.flipped",
@@ -120,13 +120,14 @@ def _judge_rat(current, formula, clause):
 
 
 def reference(formula, steps, check_rat, apply_deletions, keep_root):
-    """What a result must be. `keep_root` is the engines-1 explanation."""
+    """What a result must be. `keep_root` is the old rule, which was engines-1."""
     out = dict(ok=False, reason="", steps=0, rup_steps=0, rat_steps=0,
                deletions=0, ignored_deletions=0, failed_step=-1,
                failed_clause=None, reached_empty=False,
                resolvents_lo=0, resolvents_hi=0, sticky_rup=0,
                stuck_at=None, rat_nonvacuous=0, rat_vacuous=0,
-               ignored_short=0, ignored_absent=0, skipped=0, root_reason=0)
+               ignored_short=0, ignored_absent=0, skipped=0, root_reason=0,
+               ignored_past_conflict=0)
     conflict, assigned = oracle.propagate(formula)
     if conflict:
         out.update(ok=True, reached_empty=True, reason=REFUTED)
@@ -144,10 +145,16 @@ def reference(formula, steps, check_rat, apply_deletions, keep_root):
             elif not apply_deletions:
                 out["skipped"] += 1
             else:
-                if not sticky and oracle.is_pseudo_unit(current, clause):
+                pseudo = not sticky and oracle.is_pseudo_unit(current, clause)
+                after, present = oracle.remove_one(current, clause)
+                if pseudo and present:
                     out["root_reason"] += 1
-                current, present = oracle.remove_one(current, clause)
-                if present:
+                if not keep_root and (sticky or pseudo):
+                    out["ignored_deletions"] += 1
+                    if sticky:
+                        out["ignored_past_conflict"] += 1
+                elif present:
+                    current = after
                     out["deletions"] += 1
                 else:
                     out["ignored_deletions"] += 1
@@ -559,7 +566,7 @@ def judge(n, raw, steps, engines, tally, rng, compare_paths=True):
                 tally.flag("engine-diff:raised", None, where + (py, rs))
             bound = "can account for at most" in str(py.get("raised"))
             if bound:
-                tally.flag("refused-fresh-variable", "engines-3", where + (py,))
+                tally.flag("refused-fresh-variable", None, where + (py,))
                 c["bound_refusals"] += 1
             else:
                 tally.flag("raised", None, where + (py, rs))
@@ -574,7 +581,7 @@ def judge(n, raw, steps, engines, tally, rng, compare_paths=True):
                     and py[field] is not None and rs[field] is not None
                     and tuple(_distinct(rs[field])) == py[field]
                     and len(rs[field]) != len(py[field])):
-                tally.flag("engine-diff:failed_clause-repeat", "engines-2",
+                tally.flag("engine-diff:failed_clause-repeat", None,
                            where + (py[field], rs[field]))
             else:
                 tally.flag(f"engine-diff:{field}", None, where + (py, rs))
@@ -584,10 +591,7 @@ def judge(n, raw, steps, engines, tally, rng, compare_paths=True):
             if r["ok"] and not r["reached_empty"]:
                 tally.flag("ok-without-empty", None, where + (name,))
             if bool(r["ok"]) and sat:
-                explained = compare_with_reference(
-                    r, reference(formula, steps, check_rat, apply_deletions, True)) == []
-                tally.flag(f"sat-accepted:{tag}:{name}",
-                           "engines-1" if explained else None, where)
+                tally.flag(f"sat-accepted:{tag}:{name}", None, where)
 
         # 3. each engine against the oracle's reading of the documentation
         for name, r in (("python", py), ("native", rs)):
@@ -596,7 +600,7 @@ def judge(n, raw, steps, engines, tally, rng, compare_paths=True):
                 continue
             ext = reference(formula, steps, check_rat, apply_deletions, True)
             if compare_with_reference(r, ext) == []:
-                tally.flag(f"retained-root:{tag}:{name}", "engines-1", where + (bad,))
+                tally.flag(f"retained-root:{tag}:{name}", None, where + (bad,))
                 if doc["stuck_at"] is not None:
                     bad_step = steps[doc["failed_step"] - 1][1]
                     c["accepted_not_acceptable"] += 1
@@ -617,7 +621,8 @@ def judge(n, raw, steps, engines, tally, rng, compare_paths=True):
         c["ignored_length_le_one"] += doc["ignored_short"]
         c["ignored_absent"] += doc["ignored_absent"]
         c["deletions_skipped_by_flag"] += doc["skipped"]
-        c["root_reason_deleted"] += doc["root_reason"]
+        c["root_reason_kept"] += doc["root_reason"]
+        c["ignored_past_a_conflict"] += doc["ignored_past_conflict"]
         c["rat_nonvacuous"] += doc["rat_nonvacuous"]
         c["rat_vacuous"] += doc["rat_vacuous"]
         c["sticky_additions_past_a_deletion"] += doc["sticky_rup"]
@@ -646,7 +651,7 @@ def judge(n, raw, steps, engines, tally, rng, compare_paths=True):
 
         # the oracle's own walk, as a check on the reference above
         if check_rat and apply_deletions and doc["steps"] and not doc["sticky_rup"]:
-            walk, _ = oracle.replay(formula, steps[:doc["steps"]], "length-one")
+            walk, _ = oracle.replay(formula, steps[:doc["steps"]], "operational")
             walked_ok = walk[-1].acceptable
             if walked_ok != (doc["failed_step"] < 0):
                 tally.flag("reference-disagrees-with-replay", None, where)
@@ -678,7 +683,7 @@ def compare_other_paths(cnf, steps, py, rs, engines, where, tally, rng):
         r = attempt(engines[name], cnf, proof, steps, check_rat, apply_deletions)
         if "raised" in r:
             if "can account for at most" in r["raised"]:
-                tally.flag("refused-fresh-variable", "engines-3", where + (path, r))
+                tally.flag("refused-fresh-variable", None, where + (path, r))
                 c["bound_refusals_list_only"] += 1
             else:
                 tally.flag(f"path-raised:{path}", None, where + (r,))
@@ -893,9 +898,6 @@ NOT_CHECKED = [
     "CNF objects whose clauses were built without CNF.add, so repeated literals "
     "and tautologies in the input reach the checkers only after normalisation",
     "drat-trim: not on PATH in this campaign, so nothing here compares with it",
-    "whether a root conflict should outlive the deletion of the clauses behind "
-    "it: dratify does not document this, the reference assumes it does, as "
-    "drat-trim does, and only ok=False would make it matter",
 ]
 
 
@@ -945,7 +947,8 @@ def main(argv=None):
                 "categories_at_zero": missing,
                 "runtime_seconds": runtime,
                 "findings": [{"id": f, "severity": FINDINGS[f][0],
-                              "summary": FINDINGS[f][1]} for f in hit],
+                              "status": "fixed" if f not in hit else "open",
+                              "summary": FINDINGS[f][1]} for f in sorted(FINDINGS)],
                 "not_checked": NOT_CHECKED,
             }, fh, indent=2)
             fh.write("\n")

@@ -4,30 +4,27 @@
     1
   ],
   "instances": 40000,
-  "steps": 1532446,
+  "steps": 1529980,
   "per_category_counts": {
-    "accepted_after_root_conflict": 1576,
-    "accepted_empty_after_refutation": 1570,
-    "accepted_only_via_stale_root": 2844,
-    "accepted_rat_pivot_false_at_root": 1242,
-    "additions_rat_only": 34516,
-    "additions_rejected": 202840,
-    "additions_rup": 460988,
-    "deletions_absent": 55812,
-    "deletions_already_deleted": 7622,
-    "deletions_applied": 319914,
-    "deletions_last_copy": 249944,
-    "deletions_of_dropped_input_tautologies": 1294,
-    "deletions_of_reason_clauses": 54560,
-    "deletions_of_tautological_lemmas": 1676,
+    "additions_rat_only": 33260,
+    "additions_rejected": 203796,
+    "additions_rup": 459490,
+    "deletions_absent": 53830,
+    "deletions_after_root_conflict": 54046,
+    "deletions_already_deleted": 6262,
+    "deletions_applied": 238288,
+    "deletions_last_copy": 172332,
+    "deletions_of_dropped_input_tautologies": 1018,
+    "deletions_of_reason_clauses": 28330,
+    "deletions_of_tautological_lemmas": 1490,
     "deletions_off": 380214,
-    "deletions_one_of_several_copies": 69970,
-    "deletions_reordered": 123706,
-    "deletions_unit_ignored": 78162,
-    "deletions_unit_present_ignored": 57862,
-    "deletions_walked": 834102,
-    "deletions_with_repeated_literals": 209684,
-    "empty_clause_accepted": 36406,
+    "deletions_one_of_several_copies": 65956,
+    "deletions_reordered": 97822,
+    "deletions_unit_ignored": 78142,
+    "deletions_unit_present_ignored": 57854,
+    "deletions_walked": 833434,
+    "deletions_with_repeated_literals": 209492,
+    "empty_clause_accepted": 35794,
     "family_absent": 5000,
     "family_mixed": 5000,
     "family_multiset": 5000,
@@ -39,60 +36,37 @@
     "formulas_with_a_dropped_tautology": 1022,
     "input_paths_compared": 80000,
     "input_refuted_by_up": 15928,
-    "ok_false_on_sat": 258780,
+    "ok_false_on_sat": 259392,
     "ok_false_on_unsat": 8886,
-    "ok_true_on_sat": 612,
     "ok_true_on_unsat": 51722,
-    "rat_on_M_but_rup_via_root": 1800,
-    "readd_accepted": 41134,
-    "readd_rejected": 12160,
-    "root_conflict_reached": 37560
+    "readd_accepted": 37264,
+    "readd_rejected": 12162,
+    "root_conflict_reached": 36686
   },
-  "mismatches": {
-    "accepted_downstream_of_stale_pivot": {
-      "count": 832,
-      "label": "deletion-1"
-    },
-    "breaks_sat_after_stale_pivot": {
-      "count": 684,
-      "label": "deletion-1"
-    },
-    "failed_clause_keeps_repeats": {
-      "count": 1828,
-      "label": "deletion-3"
-    },
-    "not_acceptable_on_present_clauses": {
-      "count": 2844,
-      "label": "deletion-2"
-    },
-    "ok_on_sat_after_stale_pivot": {
-      "count": 612,
-      "label": "deletion-1"
-    },
-    "rat_step_counted_as_rup": {
-      "count": 1800,
-      "label": "deletion-2"
-    }
-  },
-  "runtime_seconds": 379.8,
+  "mismatches": {},
+  "runtime_seconds": 93.6,
   "findings": [
     {
       "id": "deletion-1",
+      "status": "fixed",
       "severity": "Critical",
       "summary": "ok=True on a satisfiable formula, both engines: deleting a reason clause leaves its literal in the root assignment but removes it from the RAT candidates, so a clause falsified at the root passes as vacuously RAT. (1)(-1 2), `d -1 2 0, -2 0, 0`"
     },
     {
       "id": "deletion-2",
+      "status": "fixed",
       "severity": "Bug",
       "summary": "Both engines accept, and count as RUP, a clause not RUP or RAT on the clauses present, using a literal whose reason was deleted; docs say clauses present. Same root cause; implied by the input, so it does not by itself refute anything"
     },
     {
       "id": "deletion-3",
+      "status": "fixed",
       "severity": "Bug",
       "summary": "Engines disagree on failed_clause when the failing step repeats a literal: Python removes repeats, native keeps them"
     },
     {
       "id": "deletion-4",
+      "status": "fixed",
       "severity": "Note",
       "summary": "ignored_deletions also counts deletions of clauses not present, including input tautologies CNF.add dropped, while report() calls them all unit deletions"
     }
@@ -102,7 +76,7 @@
     "reason strings are compared between engines only",
     "real solver proofs (cadical, kissat): every proof here is generated",
     "drat-trim itself: it is not on PATH, so its behaviour is taken from the oracle's operational flavour, which over-approximates its reason test",
-    "the operational flavour is not replayed step by step; dratify documents length-one",
+    "the specified and length-one flavours: dratify documents operational",
     "formulas above 10 variables, and long proofs: these are tiny by design",
     "the Rust crate's own API other than through cdclkit_native and check_proof, so Checker::check_step is reached only via check",
     "binary DRAT, which dratify does not read"

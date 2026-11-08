@@ -11,8 +11,9 @@ candidates deleted earlier, including a surviving copy and a "deleted" unit;
 tautological resolvents and tautological candidates; RAT steps after deletions,
 including deletions of the clause that made a root literal true.
 
-The reference is ``campaign.oracle`` under the ``length-one`` flavour, the one
-dratify documents: every deletion applies except that of a unit clause. Formulas
+The reference is ``campaign.oracle`` under the ``operational`` flavour, the one
+dratify documents: a deletion applies unless the clause is unit under the root
+assignment, or the root has already conflicted. Formulas
 go through ``parse_dimacs``, whose ``CNF.add`` documents dropping tautologies, so
 the oracle judges that normalised formula. Where the literal formula would have
 answered differently the case is counted as a note, as the oracle's own
@@ -20,14 +21,11 @@ limitations say to.
 
 The primary question is end to end: ``ok=True`` requires ``not satisfiable(F)``.
 
-Half the point is that mismatches are not filtered. A known finding stays a
-mismatch and makes the run exit 1; it is only labelled. A mismatch is labelled
-``rat-1`` only if ``model_check(stale=True)``, a model of that defect, predicts
-the checker's result (see ``same_result``), and ``rat-2`` only if the sole difference is
-``failed_clause`` on a step with a repeated literal, and ``rat-4`` only if a
-ValueError came from a variable over the bound as computed here. Anything else is
-``unexplained``. The ``no-stale`` half of the instances never deletes a clause a
-root literal rests on, so rat-1 cannot mask a different bug there.
+Half the point is that mismatches are not filtered. The findings this was written
+to catch, rat-1, rat-2 and rat-4, are fixed and carry no label now: any mismatch
+reads ``unexplained`` and makes the run exit 1, and ``model_check(stale=True)``, the
+model of rat-1, is a stub the self-test must flag. The ``stale`` part of the instances
+goes on deleting the clauses root literals rest on, to keep aiming at that rule.
 """
 
 from __future__ import annotations
@@ -151,7 +149,7 @@ def non_tautological(cands, clause):
 
 
 def oracle_walk(clauses, steps, check_rat=True, apply_deletions=True,
-                flavour="length-one"):
+                flavour="operational"):
     """Every field a checker reports, from the oracle alone."""
     fn = normalised(clauses)
     want = dict(ok=False, reached_empty=False, steps=0, rup_steps=0, rat_steps=0,
@@ -217,8 +215,9 @@ def model_check(clauses, steps, check_rat=True, apply_deletions=True, *,
 
     With no options it is correct, and the self-test holds the harness to
     finding nothing wrong with it. Each option is one way to be wrong. ``stale``
-    is the model of finding rat-1: the root assignment and any root conflict
-    outlive the clauses they rest on.
+    is the model of finding rat-1, now fixed: only clauses of at most one literal
+    are spared, and the root assignment and any root conflict outlive the clauses
+    they rest on.
     """
     fn = normalised(clauses)
     r = dict(ok=False, reason="model", steps=0, rup_steps=0, rat_steps=0,
@@ -260,8 +259,13 @@ def model_check(clauses, steps, check_rat=True, apply_deletions=True, *,
             if len(clause) <= 1 and not apply_unit_deletions:
                 r["ignored_deletions"] += 1
             elif apply_deletions:
+                spared = (not stale and not (apply_unit_deletions and len(clause) <= 1)
+                          and (oracle.propagate(current)[0]
+                               or oracle.is_pseudo_unit(current, clause)))
                 new, present = oracle.remove_one(current, clause)
-                if present:
+                if spared:
+                    r["ignored_deletions"] += 1
+                elif present:
                     graveyard.append(clause)
                     current = new
                     r["deletions"] += 1
@@ -311,21 +315,7 @@ def diff_oracle(got, want):
     return out
 
 
-def same_result(a, b):
-    """Does a model predict this result? On a rejected step RAT stops at the first
-    failing candidate, so ``resolvents_checked`` depends on candidate order, which
-    deleting one of two copies can change and no definition fixes. The model's
-    order is not the checker's, so that count is compared only without a rejection.
-    """
-    counted = a["failed_step"] != -1 \
-        or a["resolvents_checked"] == b["resolvents_checked"]
-    return all(a[f] == b[f] for f in EXACT if a[f] is not None and b[f] is not None) \
-        and counted \
-        and (None if a["failed_clause"] is None else frozenset(a["failed_clause"])) \
-        == (None if b["failed_clause"] is None else frozenset(b["failed_clause"]))
-
-
-def judge_case(clauses, steps, engines, flavour="length-one"):
+def judge_case(clauses, steps, engines, flavour="operational"):
     """Every mismatch in one case: a list of (label, kind)."""
     found = []
     runs = 0
@@ -344,36 +334,22 @@ def judge_case(clauses, steps, engines, flavour="length-one"):
             got = fn_engine(clauses, steps, check_rat, apply_deletions)
             runs += 1
             if "raised" in got:
-                # A raise is not a verdict. rat-4 only if it is the documented
-                # variable bound, computed here independently of the message.
-                label = "rat-4" if got["over_bound"] else "unexplained"
-                found.append((label, f"{name}: raised ValueError instead of a verdict"))
+                # A raise is not a verdict.
+                found.append(("unexplained", f"{name}: raised ValueError instead of a verdict"))
                 continue
             if got["ok"] and sat:
-                found.append(("rat-1" if same_result(got, model_check(
-                    clauses, steps, check_rat, apply_deletions, stale=True))
-                    else "unexplained", "ok-true-on-satisfiable-formula"))
+                found.append(("unexplained", "ok-true-on-satisfiable-formula"))
             bad = diff_oracle(got, want)
-            if bad:
-                stale = model_check(clauses, steps, check_rat, apply_deletions,
-                                    stale=True)
-                label = "rat-1" if same_result(got, stale) else "unexplained"
-                for field in bad:
-                    found.append((label, f"{name}: {field} contradicts the oracle"))
+            for field in bad:
+                found.append(("unexplained", f"{name}: {field} contradicts the oracle"))
             if base is None:
                 base = got
                 results[check_rat, apply_deletions] = got
                 continue
             split = [f for f in ALL_FIELDS if got[f] != base[f]]
             if split:
-                # rat-2 only as narrowly as it was diagnosed
-                failed = base["failed_step"]
-                repeated = 0 < failed <= len(steps) and \
-                    len(set(steps[failed - 1][1])) < len(steps[failed - 1][1])
-                label = "rat-2" if split == ["failed_clause"] and repeated \
-                    else "unexplained"
                 for field in split:
-                    found.append((label, f"engines disagree on {field}"))
+                    found.append(("unexplained", f"engines disagree on {field}"))
     return found, runs, judged, results, sat
 
 
@@ -416,12 +392,17 @@ def count_coverage(clauses, steps, results, sat, tally):
                 unit_deleted.add(s)
                 continue
             new, present = oracle.remove_one(current, clause)
+            if oracle.propagate(current)[0]:
+                tally["deletions_ignored_after_conflict"] += 1
+                continue
+            if oracle.is_pseudo_unit(current, clause):
+                if present:
+                    tally["deletions_of_a_root_reason"] += 1
+                continue
             if not present:
                 tally["deletions_absent"] += 1
                 continue
             tally["deletions_applied"] += 1
-            if shrinks_root(current, new):
-                tally["deletions_of_a_root_reason"] += 1
             graveyard.append(clause)
             current = new
             applied += 1
@@ -500,15 +481,15 @@ def count_coverage(clauses, steps, results, sat, tally):
     tally["runs_deletions_disabled"] += 1
     # Notes, not failures: where the flavours part company, and the literal
     # reading of a tautological candidate.
-    length_one, _ = oracle.replay(fn, steps, "length-one")
-    for flavour, key in (("operational", "note_verdict_differs_operational"),
+    documented, _ = oracle.replay(fn, steps, "operational")
+    for flavour, key in (("length-one", "note_verdict_differs_length_one"),
                          ("specified", "note_verdict_differs_specified")):
         other, _ = oracle.replay(fn, steps, flavour)
-        if [x.acceptable for x in other] != [x.acceptable for x in length_one]:
+        if [x.acceptable for x in other] != [x.acceptable for x in documented]:
             tally[key] += 1
     if len(fn) != len(clauses):
-        literal, _ = oracle.replay([list(c) for c in clauses], steps, "length-one")
-        if [x.acceptable for x in literal] != [x.acceptable for x in length_one]:
+        literal, _ = oracle.replay([list(c) for c in clauses], steps, "operational")
+        if [x.acceptable for x in literal] != [x.acceptable for x in documented]:
             tally["note_literal_tautological_candidate_differs"] += 1
             bad = next((x for x in literal if not x.acceptable), None)
             if bad is not None and bad.preserves_sat:
@@ -525,7 +506,8 @@ class Abort(Exception):
 
 
 class Gen:
-    """Builds one formula and proof, tracking the length-one multiset as it goes."""
+    """Builds one formula and proof, tracking a multiset that honours deletions of
+    two or more literals, so that it goes on to try what a kept reason forbids."""
 
     def __init__(self, rng, mode):
         self.rng = rng
@@ -1017,7 +999,7 @@ def shrink(clauses, steps, still_fails):
     return clauses, steps
 
 
-def run_campaign(seed, instances, engines, want_examples=False, flavour="length-one"):
+def run_campaign(seed, instances, engines, want_examples=False, flavour="operational"):
     rng = random.Random(seed)
     tally = collections.Counter()
     mismatches = collections.Counter()
@@ -1033,8 +1015,6 @@ def run_campaign(seed, instances, engines, want_examples=False, flavour="length-
         count_coverage(clauses, steps, results, sat, tally)
         for label, kind in found:
             mismatches[label, kind] += 1
-            if mode == "no-stale" and label == "rat-1":
-                mismatches["unexplained", "rat-1 in the no-stale partition"] += 1
             if want_examples and (label, kind) not in examples:
                 examples[label, kind] = (clauses, steps, mode)
     zero = [c for c in REQUIRED if not tally[c]]
@@ -1049,7 +1029,7 @@ def print_report(rep):
     print("categories:")
     for key in sorted(rep["tally"]):
         print(f"  {key:50s} {rep['tally'][key]}")
-    for label in ("rat-1", "rat-2", "rat-4", "unexplained"):
+    for label in ("unexplained",):
         lines = {k: v for (l, k), v in rep["mismatches"].items() if l == label}
         if lines:
             print(f"mismatches labelled {label}:")
@@ -1059,7 +1039,7 @@ def print_report(rep):
         print("CATEGORY NEVER REACHED: " + ", ".join(rep["zero_categories"]))
 
 
-def print_examples(rep, engines, flavour="length-one"):
+def print_examples(rep, engines, flavour="operational"):
     seen = set()
     for (label, kind), (clauses, steps, _) in sorted(rep["examples"].items()):
         if label in seen and label != "unexplained":
@@ -1142,22 +1122,22 @@ def self_test(seed, instances):
 
 
 FINDINGS = [
-    {"id": "rat-1", "severity": "Critical",
+    {"id": "rat-1", "status": "fixed", "severity": "Critical",
      "summary": "ok=True on a satisfiable formula: the root assignment outlives "
                 "a deleted non-unit reason, so a RAT lemma falsified by the stale "
                 "assignment sets root_conflict. F = 1 / -1 2, proof "
                 "`d -1 2 0`, `-2 0`, `0`. Both engines."},
-    {"id": "rat-2", "severity": "Bug",
+    {"id": "rat-2", "status": "fixed", "severity": "Bug",
      "summary": "Engines disagree on failed_clause for a rejected step that "
                 "repeats a literal: Python reports it deduplicated, native as "
                 "written."},
-    {"id": "rat-4", "severity": "Bug",
+    {"id": "rat-4", "status": "fixed", "severity": "Bug",
      "summary": "A proof naming a fresh variable above the literal bound raises "
                 "ValueError instead of being checked: `8 0` on a one-variable "
                 "formula is vacuously RAT. The bound depends on the proof's text "
                 "length, so a comment line changes the outcome, and a list of "
                 "steps gets a tighter bound than the same proof as text."},
-    {"id": "rat-3", "severity": "Note",
+    {"id": "rat-3", "status": "fixed", "severity": "Note",
      "summary": "A reason-clause deletion splits dratify's documented flavour "
                 "from drat-trim's operational one, and ignored_deletions and "
                 "report() call absent-clause deletions 'unit deletions ignored'."},
@@ -1165,7 +1145,7 @@ FINDINGS = [
 
 NOT_CHECKED = [
     "drat-trim itself: it is not installed here. The operational flavour is the "
-    "oracle's approximation, and its splits are only counted as notes.",
+    "oracle's approximation of it, and dratify's rule is that same test.",
     "steps after the empty clause: the generator cuts there, as the checkers do.",
     "ok=False reasons, beyond requiring the engines to agree on the text.",
     "failed_step and resolvents_checked when deletions are disabled are compared; "
@@ -1189,11 +1169,9 @@ def main(argv=None):
                     help="run the harness against deliberately wrong checkers")
     ap.add_argument("--no-shrink", action="store_true",
                     help="skip shrinking one example per mismatch label")
-    ap.add_argument("--flavour", default="length-one", choices=oracle.FLAVOURS,
-                    help="the deletion rule to judge against. length-one is what "
-                         "dratify documents today; a fix for rat-1 that ignores "
-                         "reason deletions, as drat-trim does, is judged by "
-                         "operational")
+    ap.add_argument("--flavour", default="operational", choices=oracle.FLAVOURS,
+                    help="the deletion rule to judge against. operational is what "
+                         "dratify documents")
     ap.add_argument("--write-results", action="store_true",
                     help=f"write campaign/results/{CORNER}.json")
     args = ap.parse_args(argv)

@@ -24,7 +24,9 @@ Run from the repo root: `python -m campaign.gen_api`. `--self-test` runs the
 harness against deliberately wrong checkers and requires it to flag each one.
 
 Every mismatch makes the exit status non-zero, including those labelled with a
-finding: a label explains a mismatch, it does not excuse it.
+finding: a label explains a mismatch, it does not excuse it. The findings that
+are fixed have no label any more, so one that comes back reads UNEXPLAINED. Only
+`api-6`, a Note left open, still labels anything.
 """
 
 from __future__ import annotations
@@ -43,10 +45,12 @@ import sys
 import tempfile
 import time
 import types
+from unittest import mock
 
 import dratify
 from dratify import (CNF, DRATChecker, MemoryProof, ProofWriter, check_proof,
                      from_dimacs, parse_dimacs, parse_proof, register_native)
+from dratify.cnf import HEADER_VARS_FLOOR
 from dratify.proof import CheckResult
 
 from campaign import oracle
@@ -83,30 +87,30 @@ L_UNORDERED = "api-7"
 UNEXPLAINED = "UNEXPLAINED"
 
 FINDINGS = [
-    {"id": L_NO_VALIDATION, "severity": "Critical",
+    {"id": L_NO_VALIDATION, "status": "fixed", "severity": "Critical",
      "summary": "DRATChecker.check and check_step skip _validate_steps: a negative "
                 "literal gets ok=True on a satisfiable formula, the 0.1.7 hole, "
                 "still open on the public streaming API (Python only)"},
-    {"id": L_STALE_ROOT, "severity": "Critical",
+    {"id": L_STALE_ROOT, "status": "fixed", "severity": "Critical",
      "summary": "deleting a reason clause leaves its root assignment in place: "
                 "d -1 2 0, -2 0, 0 gets ok=True on the satisfiable (1)(-1 2), both "
                 "engines, every shape"},
-    {"id": L_FAILED_CLAUSE, "severity": "Bug",
+    {"id": L_FAILED_CLAUSE, "status": "fixed", "severity": "Bug",
      "summary": "failed_clause keeps repeated literals on engine=native and drops "
                 "them on engine=python"},
-    {"id": L_BOUND, "severity": "Bug",
+    {"id": L_BOUND, "status": "fixed", "severity": "Bug",
      "summary": "the variable bound in check_proof depends on the shape and on the "
                 "text's length: 5 0 on a 2-variable formula is a verdict as text and "
                 "ValueError as a list or MemoryProof, and 7 0 flips with a comment"},
-    {"id": L_REENTRY, "severity": "Bug",
+    {"id": L_REENTRY, "status": "fixed", "severity": "Bug",
      "summary": "check on a used checker (Python and Rust; the only way to read a "
                 "Rust stream's result) reports ok=True, reached_empty=True and "
                 "'input formula is refuted' on a proof with no empty clause, and "
                 "'every step verified' after a rejected step"},
-    {"id": L_WRITER, "severity": "Note",
+    {"id": L_WRITER, "status": "open", "severity": "Note",
      "summary": "ProofWriter and MemoryProof.to_text turn a negative literal into a "
                 "different clause, where check_proof on the same MemoryProof raises"},
-    {"id": L_UNORDERED, "severity": "Bug",
+    {"id": L_UNORDERED, "status": "fixed", "severity": "Bug",
      "summary": "_validate_steps lets a step's literals be a set: engine=python raises "
                 "TypeError at the RAT check, engine=native returns a verdict"},
 ]
@@ -453,7 +457,6 @@ def _root(clauses):
 @dataclasses.dataclass
 class Judged:
     fields: dict
-    stale: bool                      # a deletion changed what propagates at the root
     satisfiable: bool
     accepted_kinds: list             # what each step was, until the walk stopped
     judged: int
@@ -462,8 +465,9 @@ class Judged:
 def judge(inst: Instance, check_rat, apply_deletions, counts) -> Judged:
     """Walk the proof under the rule dratify documents, by definition.
 
-    dratify documents that only deletions of unit clauses are ignored, so this
-    is the oracle's `length-one` flavour, restricted to what the flags enable.
+    dratify documents that a deletion is ignored when the clause is unit under
+    the root assignment, and all of them once the root has conflicted, so this
+    is the oracle's `operational` flavour, restricted to what the flags enable.
     """
     formula = [list(c) for c in inst.clauses]
     sat = oracle.satisfiable(formula)
@@ -474,10 +478,9 @@ def judge(inst: Instance, check_rat, apply_deletions, counts) -> Judged:
     if oracle.propagate(formula)[0]:
         fields.update(ok=True, reached_empty=True)
         counts["formula_refuted_by_propagation"] += 1
-        return Judged(fields, False, sat, kinds, 0)
+        return Judged(fields, sat, kinds, 0)
 
     current = formula
-    stale = False
     judged = 0
     for kind, lits in inst.steps:
         fields["steps"] += 1
@@ -490,10 +493,19 @@ def judge(inst: Instance, check_rat, apply_deletions, counts) -> Judged:
                 kinds.append("d")
             elif apply_deletions:
                 after, present = oracle.remove_one(current, distinct)
-                if present:
-                    if _root(after) != _root(current):
-                        stale = True
+                if oracle.propagate(current)[0]:
+                    fields["ignored_deletions"] += 1
+                    counts["del_ignored_after_conflict"] += 1
+                elif oracle.is_pseudo_unit(current, distinct):
+                    fields["ignored_deletions"] += 1
+                    if present:
                         counts["del_of_a_reason"] += 1
+                    if _root(after) != _root(current):
+                        counts["del_kept_a_real_reason"] += 1
+                elif present:
+                    if _root(after) != _root(current):
+                        raise AssertionError(f"oracle: not pseudo-unit, but it "
+                                             f"propagated: {inst.describe()}")
                     current = after
                     fields["deletions"] += 1
                     counts["del_applied"] += 1
@@ -527,7 +539,7 @@ def judge(inst: Instance, check_rat, apply_deletions, counts) -> Judged:
                 and not any(-l in have for l in set(d) if l != neg))
         else:
             fields["failed_step"] = fields["steps"]
-            fields["failed_clause"] = tuple(from_dimacs(l) for l in distinct)
+            fields["failed_clause"] = tuple(from_dimacs(l) for l in lits)
             counts["step_rejected"] += 1
             if len(distinct) != len(lits):
                 counts["rejected_step_with_repeated_literal"] += 1
@@ -538,7 +550,7 @@ def judge(inst: Instance, check_rat, apply_deletions, counts) -> Judged:
             fields["ok"] = True
             break
         current = current + [distinct]
-    return Judged(fields, stale, sat, kinds, judged)
+    return Judged(fields, sat, kinds, judged)
 
 
 def replay_agrees(inst: Instance, verdict: Judged) -> bool:
@@ -546,7 +558,7 @@ def replay_agrees(inst: Instance, verdict: Judged) -> bool:
     formula = [list(c) for c in inst.clauses]
     if oracle.propagate(formula)[0]:
         return True
-    walked, _ = oracle.replay(formula, inst.steps, "length-one")
+    walked, _ = oracle.replay(formula, inst.steps, "operational")
     for step, kind in zip(walked, verdict.accepted_kinds):
         if step.kind == "d":
             continue
@@ -739,29 +751,15 @@ def _drive_stream(impl, f, rat, dels, steps):
     return checker, bools
 
 
-def _classify(shape, fields, base, other, inst):
-    for snap in (base, other):
-        if "can account for at most" in snap.get("message", ""):
-            return L_BOUND
-    if "exception" in base or "exception" in other:
-        return UNEXPLAINED
-    if "failed_clause" in fields and set(fields) <= {"failed_clause", "report"}:
-        a, b = base["failed_clause"], other["failed_clause"]
-        if a is not None and b is not None and tuple(dict.fromkeys(b)) == a:
-            return L_FAILED_CLAUSE
-    used_twice = shape in ("check_step_then_check", "check_in_two_pieces",
-                           "rust_check_step_then_check", "rust_check_in_two_pieces")
-    if used_twice:
-        refuted = "input formula is refuted"
-        if other["reason"].startswith(refuted) and not base["reason"].startswith(refuted):
-            return L_REENTRY
-        if base["reason"].startswith(refuted):
-            return L_REENTRY
-        if other["failed_step"] != -1 and other["reason"].startswith("every step verified"):
-            return L_REENTRY
-    if shape == "check_step" and base["reason"].startswith("input formula is refuted"):
-        return L_REENTRY
-    return UNEXPLAINED
+#: read once per step through `check_step`, and not read at all by `check` on an
+#: input propagation refutes, so these differ there and nothing is wrong
+READ_COUNTERS = {"steps", "rup_steps", "rat_steps", "deletions", "ignored_deletions",
+                 "resolvents_checked", "report"}
+
+
+def _stepped_on_refuted_input(shape, base):
+    return (shape in ("check_step", "check_step_then_check", "rust_check_step_then_check")
+            and base.get("reason", "").startswith("input formula is refuted"))
 
 
 def run_one(inst, impl, tally, rust_jobs, tmp, combos=FLAG_COMBOS):
@@ -795,14 +793,13 @@ def run_one(inst, impl, tally, rust_jobs, tmp, combos=FLAG_COMBOS):
                 counts[f"shape_{name}"] += 1
                 bad = differing(base, got)
                 if bad:
-                    tally.mismatch(_classify(shape if engine == "python" else "native",
-                                             bad, base, got, inst),
-                                   name, f"{bad}: {_brief(base, bad)} vs {_brief(got, bad)}", inst)
+                    tally.mismatch(UNEXPLAINED, name,
+                                   f"{bad}: {_brief(base, bad)} vs {_brief(got, bad)}", inst)
         got = _call(lambda: impl.whole(f, to_text(inst.steps), rat, dels, "auto"))
         counts["shape_auto/text"] += 1
         bad = differing(base, got)
         if bad:
-            tally.mismatch(_classify("native", bad, base, got, inst), "auto/text",
+            tally.mismatch(UNEXPLAINED, "auto/text",
                            f"{bad}: {_brief(base, bad)} vs {_brief(got, bad)}", inst)
 
         # The streaming Python API.
@@ -830,9 +827,15 @@ def run_one(inst, impl, tally, rust_jobs, tmp, combos=FLAG_COMBOS):
         for shape, got in stream.items():
             counts[f"shape_stream/{shape}"] += 1
             ignore = STREAM_UNSET if shape == "check_step" else frozenset()
+            if _stepped_on_refuted_input(shape, base):
+                ignore = ignore | READ_COUNTERS
+                if shape == "check_step":
+                    # nothing the steps said derived it; `check([])` reports the input
+                    ignore = ignore | {"reached_empty"}
+                counts["stepped_a_refuted_input"] += 1
             bad = differing(base, got, ignore)
             if bad:
-                tally.mismatch(_classify(shape, bad, base, got, inst), f"stream/{shape}",
+                tally.mismatch(UNEXPLAINED, f"stream/{shape}",
                                f"{bad}: {_brief(base, bad)} vs {_brief(got, bad)}", inst)
             results[f"stream/{shape}"] = got
 
@@ -842,8 +845,8 @@ def run_one(inst, impl, tally, rust_jobs, tmp, combos=FLAG_COMBOS):
         for name, got in results.items():
             if got.get("ok") is True and verdict.satisfiable:
                 counts["ok_on_satisfiable"] += 1
-                label = L_STALE_ROOT if verdict.stale else UNEXPLAINED
-                tally.mismatch(label, f"SOUNDNESS {name}", "ok=True on a satisfiable formula", inst)
+                tally.mismatch(UNEXPLAINED, f"SOUNDNESS {name}",
+                               "ok=True on a satisfiable formula", inst)
 
         _oracle_compare(base, verdict, inst, tally, bools)
 
@@ -875,18 +878,7 @@ ORACLE_FIELDS = ("ok", "reached_empty", "steps", "rup_steps", "rat_steps", "dele
 
 def _oracle_compare(base, verdict, inst, tally, bools):
     if "exception" in base:
-        if "can account for at most" in base["message"]:
-            # A variable the bound refuses is still a clause with a verdict.
-            tally.mismatch(L_BOUND, "oracle/raised", f"raised, oracle says {verdict.fields}", inst)
-        else:
-            tally.mismatch(UNEXPLAINED, "oracle/raised", base["message"], inst)
-        return
-    if verdict.stale:
-        # Past a deletion of a reason, the checker keeps the old root
-        # assignment, so counts need not match the definition: api-2. What it
-        # accepted must still preserve satisfiability, and that is checked here.
-        tally.counts["proof_past_reason_deletion"] += 1
-        _stale_steps(base, inst, tally)
+        tally.mismatch(UNEXPLAINED, "oracle/raised", base["message"], inst)
         return
     expected = verdict.fields
     for field in ORACLE_FIELDS:
@@ -895,23 +887,6 @@ def _oracle_compare(base, verdict, inst, tally, bools):
         if base[field] != expected[field]:
             tally.mismatch(UNEXPLAINED, f"oracle/{field}",
                            f"got {base[field]!r}, oracle says {expected[field]!r}", inst)
-
-
-def _stale_steps(base, inst, tally):
-    current = [list(c) for c in inst.clauses]
-    done = base["steps"] - (1 if base["failed_step"] != -1 else 0)
-    for kind, lits in inst.steps[:done]:
-        distinct = list(dict.fromkeys(lits))
-        if kind == "d":
-            if len(distinct) >= 2:
-                current, _ = oracle.remove_one(current, distinct)
-            continue
-        tally.judged += 1
-        if not oracle.preserves_sat(current, lits):
-            tally.counts["step_accepted_not_preserving_sat"] += 1
-            tally.mismatch(L_STALE_ROOT, "SOUNDNESS step", f"accepted {lits}, not sat-preserving", inst)
-            return
-        current = current + [distinct]
 
 
 def _writer_properties(inst, tally):
@@ -949,7 +924,7 @@ def _misuse_probes(inst, impl, tally):
         ("dimacs_negative_with_other", [("a", (negative, 0)), ("a", ())]),
         ("bad_kind", [("x", (0, 2)), ("a", ())]),
         ("float_literal", [("a", (1.5,)), ("a", ())]),
-        ("beyond_the_bound", [("a", (2 * (f.nvars + 40),)), ("a", ())]),
+        ("beyond_the_bound", [("a", (2 * (f.nvars + HEADER_VARS_FLOOR + 40),)), ("a", ())]),
     ]
     for name, steps in probes:
         counts[f"misuse_{name}"] += 1
@@ -966,7 +941,7 @@ def _misuse_probes(inst, impl, tally):
 
         direct = _call(lambda: impl.checker(f, True, True).check(list(steps)))
         if direct.get("exception") != "ValueError":
-            label = L_NO_VALIDATION
+            label = UNEXPLAINED
             counts[f"misuse_{name}_not_refused_by_check"] += 1
             if direct.get("ok") is True and sat:
                 counts["misuse_ok_on_satisfiable"] += 1
@@ -980,23 +955,22 @@ def _misuse_probes(inst, impl, tally):
             streamed = f"bools {accepted}, reached_empty={c.result.reached_empty}"
             if all(accepted) and c.result.reached_empty and sat:
                 counts["misuse_check_step_refutes_satisfiable"] += 1
-                tally.mismatch(L_NO_VALIDATION, f"SOUNDNESS check_step/{name}", streamed, inst)
+                tally.mismatch(UNEXPLAINED, f"SOUNDNESS check_step/{name}", streamed, inst)
             else:
-                tally.mismatch(L_NO_VALIDATION, f"check_step/{name}", streamed, inst)
+                tally.mismatch(UNEXPLAINED, f"check_step/{name}", streamed, inst)
         except ValueError:
             pass
         except Exception as e:  # noqa: BLE001
-            tally.mismatch(L_NO_VALIDATION, f"check_step/{name}", type(e).__name__, inst)
+            tally.mismatch(UNEXPLAINED, f"check_step/{name}", type(e).__name__, inst)
 
     # Literals with no order have no pivot. Both engines must say the same thing.
     counts["misuse_set_literals"] += 1
     unordered = [("a", frozenset({0, 3}))]
     py = _call(lambda: impl.whole(f, unordered, True, True, "python"))
     native = _call(lambda: impl.whole(f, unordered, True, True, "native"))
-    bad = differing(py, native)
-    if bad:
-        tally.mismatch(L_UNORDERED, "misuse/set_literals",
-                       f"python {_brief(py, bad)} vs native {_brief(native, bad)}", inst)
+    if py.get("exception") != "ValueError" or native.get("exception") != "ValueError":
+        tally.mismatch(UNEXPLAINED, "misuse/set_literals",
+                       f"python {_brief(py, ['ok'])} vs native {_brief(native, ['ok'])}", inst)
 
     # A writer has no validation either; check_proof refuses the same literals.
     if negative:
@@ -1043,9 +1017,10 @@ def _compare_rust(impl, tally, rust_jobs, binary):
                 tally.counts["rust_compared_against_a_raise"] += 1
                 continue
             compared = {k: base[k] for k in got}
-            bad = differing(compared, got)
+            ignore = READ_COUNTERS if _stepped_on_refuted_input(shape, base) else frozenset()
+            bad = differing(compared, got, ignore)
             if bad:
-                tally.mismatch(_classify(shape, bad, compared, got, inst), shape,
+                tally.mismatch(UNEXPLAINED, shape,
                                f"{bad}: {_brief(compared, bad)} vs {_brief(got, bad)}", inst)
         tally.counts["shape_rust_check_step"] += 1
         if bools is not None:
@@ -1205,7 +1180,15 @@ class WrongDeletionRule(Real):
         return super().checker(formula, check_rat, False)
 
 
-STUBS = (AcceptsEverything, RejectsEverything, MemoryProofOffByOne, NativeLiesAboutDeletions,
+class LengthOnlyDeletion(Real):
+    name = "only clauses of at most one literal are spared, which was the bug"
+
+    def whole(self, formula, proof, check_rat, apply_deletions, engine):
+        with mock.patch.object(DRATChecker, "_unit_at_root", lambda self, lits: False):
+            return super().whole(formula, proof, check_rat, apply_deletions, "python")
+
+
+STUBS = (LengthOnlyDeletion, AcceptsEverything, RejectsEverything, MemoryProofOffByOne, NativeLiesAboutDeletions,
          SwapsRupAndRat, StreamAcceptsEverything, RustDrifts, WrongDeletionRule)
 
 
@@ -1282,14 +1265,12 @@ NOT_CHECKED = [
     "are generated, tiny, and judged by the oracle",
     "a Python binding for Rust Checker::check_step: none exists, so the crate is "
     "compiled and driven directly from a Rust driver embedded in this file",
-    "huge literals on the unguarded paths: DRATChecker and Rust Checker size their "
-    "arrays for whatever literal they get, and Rust's docs say so. Only 40 variables "
-    "past the formula were run, so the allocation itself was read, not exercised",
+    "huge literals through the Rust Checker: it sizes its arrays for whatever literal "
+    "it gets, and its docs say so. Literals are bounded before it from Python, and only "
+    "40 variables past the formula were run, so the allocation was read, not exercised",
     "a ProofWriter closed late or never: only properly closed writers are compared",
     "re-using a checker after a rejected step beyond one more check([]) and two pieces",
-    "the text grammar itself (parsing corner), and deletion semantics past the first "
-    "deleted reason: there only ok=True on a satisfiable formula and sat-preservation "
-    "of accepted steps are judged, not exact counts",
+    "the text grammar itself (parsing corner)",
 ]
 
 

@@ -6,8 +6,10 @@ A parse must either raise a clear `ValueError` or produce exactly the clauses
 the text means. "What the text means" comes from a reference reader in this
 file, written from the documented grammar and from how DIMACS tools read files:
 
-* a line ends at ``\\n``, and a comment runs to the end of its line;
-* tokens are separated by ASCII whitespace and spelled in ASCII digits;
+* a line ends at ``\\n``, with one ``\\r`` before it taken along, and a comment
+  runs to the end of its line; a file with no ``\\n`` and a ``\\r`` raises, and so
+  does a ``\\r`` left on a line that is not a comment;
+* tokens are separated by ASCII whitespace and an integer is ``-?[0-9]+``;
 * a ``p cnf V C`` header is exactly four tokens and appears at most once;
 * documented tolerances are kept: a clause spanning lines, several clauses on a
   line, a missing header or a wrong one (reported in ``header_mismatch``), the
@@ -18,11 +20,13 @@ Every comparison ends at the oracle: the meaning of a formula and a proof go to
 `campaign.oracle`, and ``ok=True`` requires that the formula *as meant* is
 unsatisfiable.
 
-Labelling is mechanical, not by pattern-matching on the text. Each known finding
+Labelling is mechanical, not by pattern-matching on the text. Each open finding
 is a named quirk the reference reader can be told to imitate. A mismatch carries
 the label of the smallest set of quirks that makes the reference agree with what
-dratify did, and one no set of quirks explains is UNEXPLAINED. Known findings
-stay mismatches and the run exits non-zero until they are fixed.
+dratify did, and one no set of quirks explains is UNEXPLAINED. Open findings stay
+mismatches and the run exits non-zero until they are fixed. A finding that is
+fixed leaves `QUIRKS`, so its return reads UNEXPLAINED; its quirk stays as a stub
+in `--self-test`, which must flag it.
 
     python -m campaign.gen_parsing                 # the reported run
     python -m campaign.gen_parsing --self-test     # wrong stubs must be flagged
@@ -53,74 +57,70 @@ Q_HEADER = "parsing-2"  # p-prefixed first token, and tokens after the fourth
 Q_LEX = "parsing-3"     # Python's int() and Unicode whitespace define the tokens
 Q_MULTI = "parsing-4"   # later headers replace earlier ones
 Q_TAUT = "parsing-5"    # a tautology's literals after the clash do not count
-#: searched in this order, so a stray separator outside a comment, which Q_LEX
-#: and Q_BREAK both explain, is charged to Q_LEX: it would survive a fix of Q_BREAK
-QUIRKS = (Q_LEX, Q_HEADER, Q_MULTI, Q_TAUT, Q_BREAK)
+#: what still labels a mismatch: the others are fixed, and kept only for the stubs
+QUIRKS = (Q_TAUT,)
 
 FINDINGS = [
-    {"id": "parsing-1", "severity": "Critical",
+    {"id": "parsing-1", "status": "fixed", "severity": "Critical",
      "summary": "Vertical tab, form feed, bare CR, FS/GS/RS, NEL, LS, PS end a "
                 "comment, so a clause hidden in a comment is read: a file "
                 "minisat, cadical and kissat all call SATISFIABLE gets ok=True, "
                 "even through strict=True."},
-    {"id": "parsing-2", "severity": "Bug",
+    {"id": "parsing-2", "status": "fixed", "severity": "Bug",
      "summary": "A header line's tokens after the fourth are ignored, so "
                 "`p cnf 1 0 1 0` silently loses a clause, even under "
                 "strict=True; `pq cnf 1 1` is also read as a header."},
-    {"id": "parsing-3", "severity": "Bug",
+    {"id": "parsing-3", "status": "fixed", "severity": "Bug",
      "summary": "Tokens are whatever int() and str.split() accept, in both "
                 "parsers: `1_0` is variable 10, U+0663 is 3, U+0660 ends a "
                 "clause, and U+00A0 separates literals or hides a line as a "
                 "comment. All three reference solvers refuse these."},
-    {"id": "parsing-4", "severity": "Bug",
+    {"id": "parsing-4", "status": "fixed", "severity": "Bug",
      "summary": "A second `p cnf` line replaces the first, so strict=True "
                 "passes `p cnf 1 1 / 1 0 / p cnf 1 2 / -1 0`, whose first "
                 "header disagrees with the clauses."},
-    {"id": "parsing-5", "severity": "Note",
+    {"id": "parsing-5", "status": "open", "severity": "Note",
      "summary": "header_mismatch has gaps: a tautology's literals after the "
                 "clash do not count, so strict depends on literal order, and "
                 "CNF.copy() drops the field."},
-    {"id": "parsing-6", "severity": "Note",
+    {"id": "parsing-6", "status": "open", "severity": "Note",
      "summary": "`%` ends the formula wherever it appears, and real clauses "
                 "after it are dropped silently even under strict=True when the "
                 "header agrees. Documented as a SATLIB tolerance."},
-    {"id": "parsing-7", "severity": "Note",
+    {"id": "parsing-7", "status": "open", "severity": "Note",
      "summary": "parse_proof documents reading as drat-trim's fscanf(\" %i \"), "
                 "but `010` is 10 here and 8 under %i, and `0x10` raises here "
                 "and is 16 under %i."},
-    {"id": "parsing-8", "severity": "Note",
+    {"id": "parsing-8", "status": "fixed", "severity": "Note",
      "summary": "The documented bound on proof literals counts the text's "
                 "length, so a comment or trailing spaces flip `5000 0` from "
                 "ValueError to a checked RAT step."},
-    {"id": "parsing-9", "severity": "Critical",
+    {"id": "parsing-9", "status": "fixed", "severity": "Critical",
      "summary": "Not a parsing bug, found here. Deleting a clause that is a "
                 "reason at the root leaves its implied value in place, so "
                 "`-2 / 2 1` with proof `d 2 1 0, -1 0, 0` gets ok=True though "
                 "x1=T, x2=F satisfies it. Every oracle flavour rejects. Both "
                 "engines."},
-    {"id": "parsing-10", "severity": "Bug",
+    {"id": "parsing-10", "status": "fixed", "severity": "Bug",
      "summary": "Not a parsing bug, found here. On a rejected step that repeats "
                 "a literal, failed_clause is deduplicated by Python and not by "
                 "native: (2,) against (2, 2)."},
 ]
-
-#: findings in the checkers, which a fixed parser would not make go away
-CHECKER_LABELS = ("parsing-9", "parsing-10")
 
 NOT_CHECKED = [
     "drat-trim itself: it is not on PATH, so parsing-7 rests on its documented "
     "fscanf format and a C fscanf(\" %i \") run, not on drat-trim.",
     "Binary DRAT: dratify documents text proofs only.",
     "Non-str inputs to the parsers (bytes, None).",
-    "parse_dimacs_file decoding (errors='replace', universal newlines): only "
-    "exercised by hand in parsing-1, not by this generator.",
+    "parse_dimacs_file decoding and its newline handling: tested in "
+    "tests/test_text_forms.py, not by this generator.",
     "Inputs large enough to hit the header and literal bounds' floor of 2^20, "
     "beyond single over-limit values; memory and time limits are not measured.",
     "The position of a single header relative to clauses is not judged; a "
     "header after clauses is accepted as a tolerance.",
     "Deletion semantics: proofs with deletions are judged only by engine "
     "agreement, re-rendering invariance and ok=True => unsatisfiable. The "
-    "deletion corner owns the rest; parsing-9 surfaced anyway.",
+    "deletion corner owns the rest.",
     "cdclkit's use of these parsers, beyond noting that its CLI calls "
     "parse_dimacs_file.",
 ]
@@ -136,13 +136,22 @@ class Refused(Exception):
     """The reference says this text must raise."""
 
 
-_ASCII_WS = " \t\r\x0b\x0c"
-_ASCII_SPLIT = re.compile(r"[ \t\r\x0b\x0c]+")
-_INT = re.compile(r"[+-]?[0-9]+\Z")
+_ASCII_WS = " \t\x0b\x0c"
+_ASCII_SPLIT = re.compile(r"[ \t\x0b\x0c]+")
+_INT = re.compile(r"-?[0-9]+\Z")
 
 
 def _lines(text, quirks):
-    return text.splitlines() if Q_BREAK in quirks else text.split("\n")
+    if Q_BREAK in quirks:
+        return text.splitlines()
+    if "\r" in text and "\n" not in text:
+        raise Refused("CR-only")
+    return [ln[:-1] if ln.endswith("\r") else ln for ln in text.split("\n")]
+
+
+def _no_stray_cr(line, quirks):
+    if "\r" in line and Q_LEX not in quirks:
+        raise Refused("carriage return inside a line")
 
 
 def _strip(line, quirks):
@@ -201,6 +210,7 @@ def ref_dimacs(text, strict=False, quirks=frozenset()):
         head = line[0]
         if head == "c":
             continue
+        _no_stray_cr(line, quirks)
         if head == "%":
             break
         if head == "p":
@@ -249,6 +259,7 @@ def ref_proof(text, quirks=frozenset()):
         line = _strip(raw, quirks)
         if not line or line[0] == "c":
             continue
+        _no_stray_cr(line, quirks)
         for tok in _tokens(line, quirks):
             num = tok
             if tok[0] == "d":
@@ -312,10 +323,11 @@ class _FromReference(Real):
     """The reference reader behind dratify's API, and the real checkers."""
 
     check_copy = False
+    quirks = frozenset()
 
     def parse_dimacs(self, text, strict=False):
         try:
-            nvars, clauses, mismatch = ref_dimacs(text, strict)
+            nvars, clauses, mismatch = ref_dimacs(text, strict, self.quirks)
         except Refused as e:
             raise ValueError(str(e)) from None
         f = CNF(nvars)
@@ -326,7 +338,7 @@ class _FromReference(Real):
 
     def parse_proof(self, text):
         try:
-            return [(k, tuple(c)) for k, c in ref_proof(text)]
+            return [(k, tuple(c)) for k, c in ref_proof(text, self.quirks)]
         except Refused as e:
             raise ValueError(str(e)) from None
 
@@ -424,8 +436,29 @@ class CommentEatsLine(_FromReference):
         return super().parse_dimacs("\n".join(lines), strict)
 
 
+class LinesEndAnywhere(_FromReference):
+    name = "wrong: str.splitlines ends a line and a comment (parsing-1, fixed)"
+    quirks = frozenset({Q_BREAK})
+
+
+class LongHeaders(_FromReference):
+    name = "wrong: a header may start with p and run on (parsing-2, fixed)"
+    quirks = frozenset({Q_HEADER})
+
+
+class LenientTokens(_FromReference):
+    name = "wrong: int() and str.split() define a token (parsing-3, fixed)"
+    quirks = frozenset({Q_LEX})
+
+
+class LastHeaderWins(_FromReference):
+    name = "wrong: a later header replaces an earlier one (parsing-4, fixed)"
+    quirks = frozenset({Q_MULTI})
+
+
 STUBS = (AcceptAll, RejectAll, DropsLastClause, AcceptsAnything, RaisesAlways,
-         WrongException, FirstZeroOnly, CommentEatsLine)
+         WrongException, FirstZeroOnly, CommentEatsLine, LinesEndAnywhere, LongHeaders,
+         LenientTokens, LastHeaderWins)
 
 
 # --------------------------------------------------------------------------
@@ -536,14 +569,10 @@ class Run:
             if _fields(r) != first:
                 differ = [n for n, a, b in zip(RESULT_FIELDS, first, _fields(r))
                           if a != b]
-                only_repeats = (differ == ["failed_clause"]
-                                and list(dict.fromkeys(results[0][1].failed_clause))
-                                == list(dict.fromkeys(r.failed_clause)))
-                self.mismatch("parsing-10" if only_repeats else "UNEXPLAINED",
-                              f"engines disagree on {differ}", label_text)
+                self.mismatch("UNEXPLAINED", f"engines disagree on {differ}", label_text)
         return results[0][1]
 
-    def judge_end_to_end(self, f, f_text, proof_text, meant, label, steps=()):
+    def judge_end_to_end(self, f, f_text, proof_text, meant, label):
         """`meant` is the formula the text means. ok=True requires it unsat."""
         r = self.check_engines(f, proof_text, f"{f_text!r} / {proof_text!r}")
         if r is None:
@@ -553,8 +582,6 @@ class Run:
             self.c["e2e_meant_satisfiable"] += 1
             if r.ok:
                 self.c["ok_true_on_satisfiable_text"] += 1
-                if label is None and _rejected_by_every_flavour(meant, steps):
-                    label = "parsing-9"
                 self.mismatch(label or "UNEXPLAINED",
                               "ok=True on a text whose meaning is satisfiable",
                               f"{f_text!r} / {proof_text!r}")
@@ -581,23 +608,6 @@ class Run:
             self.c["steps_rejected"] += 1
         self.c["steps_accepted_by_rup"] += expected["rup"]
         self.c["steps_accepted_by_rat_only"] += expected["rat"]
-
-
-def _over_list_bound(f, steps):
-    """A literal above the documented bound for steps given as a list."""
-    limit = f.nvars + sum(len(lits) for _, lits in steps)
-    return any(abs(d) > limit for _, lits in steps for d in lits)
-
-
-def _rejected_by_every_flavour(meant, steps):
-    """A proof with a deletion that no reading of deletion accepts."""
-    if not any(kind == "d" for kind, _ in steps):
-        return False
-    for flavour in oracle.FLAVOURS:
-        judged, _ = oracle.replay(meant, steps, flavour, stop_at_unacceptable=True)
-        if all(step.acceptable for step in judged):
-            return False
-    return True
 
 
 def _expected_walk(meant, steps):
@@ -707,9 +717,6 @@ COMMENTS = ("c", "c plain words", "c 1 0", "c p cnf 9 9", "c %", "c d 1 0",
 
 def _literal_text(rng, d, c):
     r = rng.random()
-    if r < .03 and d > 0:
-        c["token_plus_sign"] += 1
-        return f"+{d}"
     if r < .06:
         c["token_leading_zero"] += 1
         return f"{'-' if d < 0 else ''}0{abs(d)}"
@@ -720,7 +727,7 @@ def _terminator_text(rng, c):
     r = rng.random()
     if r < .04:
         c["token_zero_spelling"] += 1
-        return rng.choice(("00", "-0", "+0"))
+        return rng.choice(("00", "-0", "000"))
     return "0"
 
 
@@ -890,12 +897,15 @@ MUST_RAISE_DIMACS = (
     "p cnf x y\n", "p cnf 1\n", "p dnf 1 1\n", "p\n", "P CNF 1 1\n",
     "﻿p cnf 1 1\n1 0\n", "1 2 0\n\x00", "1 0 %\n", "99999999999 0\n",
     "1 " + "9" * 5000 + " 0\n", "p cnf 1 " + "9" * 5000 + "\n",
+    "+1 0\n", "+0\n", "1 +0\n", "p cnf +1 1\n1 0\n",
+    "p cnf 1 1\r1 0\r", "c x\r1 0\r", "1 0\r2 0\r", "1 0\r2 0\n", "1 0\r\r\n",
 )
 MUST_RAISE_PROOF = (
     "%\n", "p cnf 1 1\n", "1 0 junk\n", "1 0 c note\n", "1 0\n2\n", "d\n",
     "1 0 d\n", "1 d 2 0\n", "d d 1 0\n", "dd1 0\n", "x 0\n", "a 1 0\n",
     "D 1 0\n", "1.0 0\n", "0x1 0\n", "d 1\n", "﻿1 0\n", "1\x000\n",
     "1 " + "9" * 5000 + " 0\n",
+    "+1 0\n", "d+1 0\n", "1 0\r0\r", "c x\r1 0\r", "1 0\r2 0\n", "1 0\r\r\n",
 )
 SOUP_TOKENS = ("0", "0", "0", "1", "-1", "2", "-2", "3", "-3", "00", "+1", "-0",
                "d", "d1", "d-2", "d0", "c", "c x", "p", "cnf", "p cnf 3 2",
@@ -1061,7 +1071,7 @@ def run_instance(run, rng):
     status, f = run._try(run.t.parse_dimacs, f_text)
     if status == "ok" and p_label is None:
         pair = f"{f_text!r} / {p_text!r}"
-        result = run.judge_end_to_end(f, f_text, p_text, meant, label, steps)
+        result = run.judge_end_to_end(f, f_text, p_text, meant, label)
         if result is not None:
             if has_deletion:
                 c["proofs_with_deletion_judged_e2e_only"] += 1
@@ -1073,10 +1083,6 @@ def run_instance(run, rng):
             for engine in run.engines:
                 got = run._try(run.t.check_steps, f, steps, engine)
                 c["text_vs_list_comparisons"] += 1
-                if got[0] == "raise" and _over_list_bound(f, steps):
-                    # the bound counts a text's length, and a list has none
-                    c["note_list_refused_what_text_accepts"] += 1
-                    continue
                 if got[0] != "ok" or _fields(got[1]) != _fields(
                         run.t.check(f, p_text, engine)):
                     run.mismatch("UNEXPLAINED", f"text and list differ on {engine}", pair)
@@ -1129,13 +1135,16 @@ def note_percent(run, rng):
 
 
 def note_padding(run, rng):
-    """A proof literal's bound depends on the length of the proof's text."""
+    """A proof literal's bound reads the steps and not the text: parsing-8, fixed."""
     lit = rng.randint(1000, 4000)
     f = run.t.parse_dimacs("p cnf 2 1\n1 2 0\n")
     bare = run._try(run.t.check, f, f"{lit} 0\n", "python")
     padded = run._try(run.t.check, f, f"c {'x' * 5000}\n{lit} 0\n", "python")
-    if bare[0] == "raise" and padded[0] == "ok":
-        run.c["note_padding_flips_literal_bound"] += 1
+    if bare[0] == padded[0] == "ok":
+        run.c["literal_bound_ignores_padding"] += 1
+    else:
+        run.mismatch("UNEXPLAINED", "padding changes whether a literal is allowed",
+                     f"{lit} 0\n")
 
 
 # --------------------------------------------------------------------------
@@ -1154,7 +1163,7 @@ REQUIRED = (
     "header_correct", "header_absent", "header_declares_unused_vars",
     "header_wrong_clause_count", "header_too_few_vars", "percent_terminator",
     "formula_repeated_literal", "formula_tautology", "formula_empty_clause",
-    "token_plus_sign", "token_leading_zero", "token_zero_spelling",
+    "token_leading_zero", "token_zero_spelling",
     "proof_d_without_space", "proof_d_alone_on_a_line",
     "proof_clause_split_across_lines", "proof_several_clauses_on_a_line",
     "steps_replayed_by_oracle", "steps_accepted_by_rup",
@@ -1171,7 +1180,7 @@ REQUIRED = (
     "hostile_proof_digits", "hostile_proof_spaces", "hostile_proof_after_d",
     "hostile_proof_junk", "copy_checks",
     "note_percent_drops_real_clause_under_strict",
-    "note_padding_flips_literal_bound",
+    "literal_bound_ignores_padding",
 ) + tuple(f"hostile_comment_break_U+{ord(ch):04X}" for ch in LINE_BREAKS)
 
 
@@ -1203,8 +1212,7 @@ def self_test(seed, instances, engines):
     failed = 0
     print(f"self-test: {instances} instances per stub, seed {seed}")
     def parser_side(run):
-        return sum(n for label, n in run.mismatches.items()
-                   if label not in CHECKER_LABELS)
+        return sum(run.mismatches.values())
 
     for cls in STUBS:
         run = run_harness(cls(), seed, instances, engines)
@@ -1215,11 +1223,9 @@ def self_test(seed, instances, engines):
     run = run_harness(CleanStub(), seed, instances, engines)
     flagged = parser_side(run)
     print(f"  {'clean' if not flagged else 'NOISY':8} {flagged:6} mismatches  "
-          f"{CleanStub.name} (checker findings excluded: "
-          f"{sum(run.mismatches.values()) - flagged})")
+          f"{CleanStub.name}")
     for (label, what), text in sorted(run.examples.items()):
-        if label not in CHECKER_LABELS:
-            print(f"    [{label}] {what}: {text!r}")
+        print(f"    [{label}] {what}: {text!r}")
     failed += bool(flagged)
     return failed
 

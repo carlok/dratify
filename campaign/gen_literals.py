@@ -6,7 +6,7 @@ Repeated and complementary literals in formulas and lemmas, variables above the
 header's count, ``-0`` and the other spellings of a terminator, the bound on a
 literal, and the surfaces that take literals without the parser in front.
 
-Every proof is judged by ``campaign/oracle.py`` under ``length-one``, the
+Every proof is judged by ``campaign/oracle.py`` under ``operational``, the
 deletion rule dratify documents, on the formula as ``CNF.add`` documents it
 (a clause is a set, tautologies dropped), and on both engines. The end-to-end
 question comes first: ``ok=True`` requires ``not oracle.satisfiable(F)``.
@@ -18,7 +18,8 @@ Run from the repo root::
     python -m campaign.gen_literals --self-test
 
 Exit status is non-zero on any mismatch, labelled or not, and on any category
-left at zero. Open findings therefore fail the run until they are fixed.
+left at zero. Open findings therefore fail the run until they are fixed. A fixed
+finding has no label here any more, so one that comes back reads UNEXPLAINED.
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ import random
 import re
 import sys
 import time
+from unittest import mock
 
 from campaign import oracle
 from dratify import (CNF, DRATChecker, check_proof, parse_dimacs, parse_proof,
@@ -59,49 +61,32 @@ del_repeat_applied del_unit_by_repeat_ignored del_unit_ignored
 del_tautological_lemma_applied del_formula_tautology_absent del_absent
 del_fresh_var del_empty_clause del_shuffled_applied
 minus_zero_formula minus_zero_proof other_zero_spelling
-bound_at_limit_accepted bound_above_limit_refused bound_huge_refused
-bound_padded_accepted formula_floor_accepted formula_floor_plus_one_refused
-token_plus_or_leading_zero token_lenient token_bad_refused
-comment_formula comment_proof comment_refuted_satisfiable
+bound_at_limit_accepted bound_with_a_gap_accepted bound_above_limit_refused
+bound_huge_refused bound_padded_still_refused formula_floor_accepted formula_floor_plus_one_refused
+token_leading_zero token_lenient token_bad_refused
+comment_formula comment_proof
 surface_add_normalises surface_add_negative_refused surface_negative_formula
 surface_repeat_formula surface_checker_negative_step
 variant_no_rat variant_no_deletions list_form_compared roundtrip
-ok_true_unsat ok_false_no_empty ok_false_rejected stale_root_states
+ok_true_unsat ok_false_no_empty ok_false_rejected del_reason_ignored
 engines_compared
 """.split()
 
 #: mismatch labels that stand for a written-up finding, and nothing else does
 KNOWN = {
-    "stale-root": ("literals-1", "Critical",
-                   "A deleted reason's root assignment survives, so a RAT step "
-                   "against the smaller multiset falsifies it: ok=True on a "
-                   "satisfiable formula, both engines."),
-    "failed-clause-repeats": ("literals-2", "Bug",
-                              "failed_clause keeps repeated literals on native "
-                              "and drops them on Python."),
-    "bound-refuses-valid": ("literals-3", "Bug",
-                            "check_proof raises on a valid fresh variable above "
-                            "nvars + text length, and padding the text changes "
-                            "the answer."),
-    "comment-split": ("literals-4", "Critical",
-                      "str.splitlines ends a DIMACS comment at FF, VT, CR, LS "
-                      "and more, so text in a comment becomes a clause and a "
-                      "file minisat calls SAT is refuted."),
-    "unvalidated-surface": ("literals-5", "Critical",
-                            "check_proof validates steps but not formula.clauses, "
-                            "and DRATChecker validates neither: negative literals "
-                            "reach Python's arrays, the 0.1.7 hole by another door."),
-    "token-lenient": ("literals-6", "Note",
-                      "int() and str.split accept 1_0, non-ASCII digits and "
-                      "NBSP as DIMACS, which no C reader does."),
     "nvars-tautology": ("literals-7", "Note",
                         "CNF.add stops growing nvars at the literal that makes "
                         "a tautology, so nvars and strict parsing depend on "
                         "literal order."),
-    "repeat-surface": ("literals-5", "Critical",
-                       "A clause with repeats placed on CNF.clauses directly is "
-                       "not normalised, so its unit is not seen. Same door as "
-                       "literals-5, fails closed."),
+}
+
+#: written up, and fixed. These labels no longer explain anything, so a mismatch
+#: that earns one again reads UNEXPLAINED and fails the run.
+FIXED = {
+    "stale-root": "literals-1", "failed-clause-repeats": "literals-2",
+    "bound-refuses-valid": "literals-3", "comment-split": "literals-4",
+    "unvalidated-surface": "literals-5", "repeat-surface": "literals-5",
+    "token-lenient": "literals-6",
 }
 
 NOT_CHECKED = [
@@ -109,19 +94,19 @@ NOT_CHECKED = [
     "drat-trim: not installed here and never run; what is said of it comes from "
     "this repo's docs and the oracle's flavours",
     "octal readings: fscanf %i takes 010 as 8 and dratify as 10, not compared",
-    "the % terminator and clauses after it, and headers with extra tokens",
+    "the % terminator and clauses after it, and headers with extra tokens "
+    "(parsing corner)",
     "proofs from a real solver: every proof is generated against the oracle",
     "formulas past 10 variables plus fresh ones: the oracle's table stays small "
     "on purpose",
     "variables near 2^32 or memory exhaustion on native: a CNF built with "
-    "nvars >= 2^32 is checked once for the OverflowError, never allocated",
+    "nvars >= 2^32 is checked once for one answer, never allocated",
     "the Rust API directly: native is reached through cdclkit_native and "
     "check_proof, so Checker::new and check_step are not called on their own",
     "the literal bound on the list and MemoryProof shapes above the floor: "
     "compared on fresh variables within the bound, and one huge-literal case",
-    "whether stale-root acceptances beyond the labelled shape exist with no "
-    "RAT step involved: a RUP step that uses a stale assignment is counted as "
-    "implied by the input, not judged as a mismatch",
+    "a proof long enough for its occurrences to raise the literal bound past the "
+    "floor: that takes a million literals, and is tested on the rule itself",
 ]
 
 
@@ -149,27 +134,35 @@ class Unreadable(ValueError):
     """Text a C DIMACS reader would refuse."""
 
 
-_ASCII_INT = re.compile(r"[+-]?[0-9]+\Z")
-_C_SPACE = " \t\r\x0b\x0c"
+_ASCII_INT = re.compile(r"-?[0-9]+\Z")
+_C_SPACE = " \t\x0b\x0c"
+
+
+def _reference_lines(text):
+    """`\\n` ends a line and one `\\r` before it goes with it. A file with a `\\r`
+    and no `\\n` is not read, and neither is a `\\r` left on a clause line."""
+    if "\r" in text and "\n" not in text:
+        raise Unreadable("CR-only")
+    for line in text.split("\n"):
+        yield (line[:-1] if line.endswith("\r") else line).strip(_C_SPACE)
 
 
 def reference_read(text):
-    """DIMACS as C readers take it: `\\n` ends a line, `isspace` separates
-    tokens, a token is an ASCII integer, and a comment runs to the `\\n`.
+    """DIMACS as dratify documents it: `\\n` ends a line, ASCII whitespace
+    separates tokens, a token is an ASCII integer, a comment runs to the `\\n`.
 
     Returns (clauses as written, declared variables, declared clauses).
     """
     clauses, pending = [], []
     nv = nc = None
-    for line in text.split("\n"):
-        line = line.strip(_C_SPACE)
+    for line in _reference_lines(text):
         if not line or line[0] == "c":
             continue
         if line[0] == "p":
             parts = line.split()
             nv, nc = int(parts[2]), int(parts[3])
             continue
-        for tok in re.split(r"[ \t\r\x0b\x0c]+", line):
+        for tok in re.split(r"[ \t\x0b\x0c]+", line):
             if not _ASCII_INT.match(tok):
                 raise Unreadable(tok)
             d = int(tok)
@@ -186,11 +179,10 @@ def reference_read(text):
 def reference_read_proof(text):
     """The same for a proof: `(kind, literals as written)`."""
     steps, pending, kind = [], [], "a"
-    for line in text.split("\n"):
-        line = line.strip(_C_SPACE)
+    for line in _reference_lines(text):
         if not line or line[0] == "c":
             continue
-        for tok in re.split(r"[ \t\r\x0b\x0c]+", line):
+        for tok in re.split(r"[ \t\x0b\x0c]+", line):
             if tok[0] == "d":
                 kind, tok = "d", tok[1:]
                 if not tok:
@@ -314,7 +306,7 @@ def spell_zero(rng, tags, where):
         tags[where] += 1
         return "-0"
     tags["other_zero_spelling"] += 1
-    return rng.choice(("+0", "00", "-00"))
+    return rng.choice(("000", "00", "-00"))
 
 
 def render_formula(rng, raw, nv, tags):
@@ -642,43 +634,31 @@ class Harness:
 
     def walk(self, F0, steps, check_rat, apply_deletions):
         """What the oracle says of each step, with every addition kept so a
-        stale checker can be followed past the point it should have stopped."""
+        checker can be followed past the point it should have stopped."""
         rows = []
         if any(not c for c in F0) or oracle.propagate(F0)[0]:
             return rows, True
         cur = [list(c) for c in F0]
-        conflicted, root = oracle.propagate(cur)
-        root = set(root)
-        stale = False
         for index, (kind, lits) in enumerate(steps, 1):
             distinct = as_set(lits)
             if kind == "d":
                 row = dict(index=index, kind="d", lits=lits, distinct=distinct,
-                           applied=False, present=False, stale=stale, cur=cur,
-                           ignored=False)
+                           applied=False, present=False, cur=cur, ignored=False)
                 if len(distinct) <= 1:
                     row["ignored"] = True
                 elif apply_deletions:
-                    [st], cur = oracle.replay(cur, [("d", lits)], "length-one",
+                    [st], cur = oracle.replay(cur, [("d", lits)], "operational",
                                               stop_at_unacceptable=False)
                     row["applied"], row["present"] = st.applied, st.present
                     row["ignored"] = not st.applied
-                    now_conflict, now_root = oracle.propagate(cur)
-                    if st.applied and ((conflicted and not now_conflict)
-                                       or (not now_conflict and not root <= now_root)):
-                        stale = True
-                row["stale"] = stale
                 rows.append(row)
                 continue
-            [st], next_cur = oracle.replay(cur, [("a", lits)], "length-one",
+            [st], next_cur = oracle.replay(cur, [("a", lits)], "operational",
                                            stop_at_unacceptable=False)
             acceptable = bool(st.rup) or (check_rat and bool(st.rat_on_first))
             rows.append(dict(index=index, kind="a", lits=lits, distinct=distinct,
-                             step=st, acceptable=acceptable, stale=stale, cur=cur))
+                             step=st, acceptable=acceptable, cur=cur))
             cur = next_cur
-            conflict, now = oracle.propagate(cur)
-            conflicted = conflicted or conflict
-            root |= now
             if not lits and acceptable:
                 break
         return rows, False
@@ -704,7 +684,7 @@ class Harness:
                 hi += total
             else:
                 e["failed_step"] = row["index"]
-                e["failed_clause"] = row["distinct"]
+                e["failed_clause"] = tuple(row["lits"])
                 hi += total
                 break
             if not row["lits"]:
@@ -737,11 +717,10 @@ class Harness:
         a = result
         if a.ok and not a.reached_empty:
             self.flag("ok-without-empty", **ctx)
-        any_stale = any(r["stale"] for r in rows)
 
         # the end-to-end question, before anything else
         if a.ok and oracle.satisfiable(inst.raw):
-            self.flag("stale-root" if any_stale else "sat-accepted", **ctx)
+            self.flag("sat-accepted", **ctx)
 
         if refuted_at_start:
             if not a.ok or not a.reached_empty or a.steps != 0:
@@ -760,23 +739,13 @@ class Harness:
                     self.flag("rejects-acceptable", step=row["index"], **ctx)
                 break
             if not row["acceptable"]:
-                if row["stale"]:
-                    self.counts["stale_root_states"] += 1
-                    # A stale RUP is implied by the input, not by the multiset,
-                    # and that alone is not unsound. Losing satisfiability is.
-                    if not row["step"].preserves_sat:
-                        self.flag("stale-root", step=row["index"], **ctx)
-                else:
-                    self.flag("accepts-unacceptable", step=row["index"], **ctx)
+                self.flag("accepts-unacceptable", step=row["index"], **ctx)
 
-        if any_stale:
-            return                 # the counts below describe no stale checker
         want, lo, hi = self.expected(rows)
         got = {k: getattr(a, k) for k in want}
         if got["failed_clause"] is not None:
-            # which clause it was, as DIMACS; whether repeats survive in the field
-            # is the engine comparison's business
-            got["failed_clause"] = as_set(to_dimacs(l) for l in got["failed_clause"])
+            # which clause it was, as DIMACS, and as the proof wrote it
+            got["failed_clause"] = tuple(to_dimacs(l) for l in got["failed_clause"])
         if got != want:
             self.flag("field-mismatch", got=got, want=want, **ctx)
         if not lo <= a.resolvents_checked <= hi:
@@ -810,6 +779,8 @@ class Harness:
                         c["del_tautological_lemma_applied"] += 1
                     if list(distinct) not in row["cur"]:
                         c["del_shuffled_applied"] += 1
+                elif row["present"]:
+                    c["del_reason_ignored"] += 1
                 elif len(distinct) > 1:
                     c["del_absent"] += 1
                     if frozenset(distinct) in input_taut:
@@ -825,7 +796,7 @@ class Harness:
                 break
             st = row["step"]
             by_rup = bool(st.rup)
-            if not by_rup and distinct:   # an empty clause here is a stale accept
+            if not by_rup and distinct:
                 c["rat_accepted"] += 1
                 if distinct and lits.count(distinct[0]) > 1:
                     c["lemma_pivot_repeated_rat"] += 1
@@ -913,12 +884,13 @@ class Harness:
                       formula=inst.formula_text)
 
     def family_bound(self):
-        """Fresh variables at, just past and far past the documented bound.
+        """Fresh variables with a gap, just past the documented bound, and far past.
 
-        A fresh variable's number means nothing, so the oracle's verdict does
-        not move with it; only the guard can. Up to HEADER_VARS_FLOOR the header
-        takes such a number from any file, so refusing it here is a finding.
-        Past the floor, refusing it is what tests/test_untrusted_input.py asks.
+        A fresh variable's number means nothing, so the oracle's verdict does not
+        move with it; only the guard can, and the guard reads only the formula and
+        the steps. Past it, refusing is what tests/test_untrusted_input.py asks.
+        A comment must not change either answer. The exact limit allocates a
+        million variables, so it is run once, in `family_floor`.
         """
         rng = self.rng
         nv = rng.randint(1, 4)
@@ -934,63 +906,53 @@ class Harness:
         def proof(v):
             return f"{pad}{sign * v} 0\n"
 
-        def limit(v):
-            text = proof(v)
-            return f.nvars + max(1, len(text))
-
-        at = f.nvars + 1
-        while at + 1 <= limit(at + 1):
-            at += 1
-        above = at + 1
-        huge = HEADER_VARS_FLOOR + 1 + rng.randint(0, 1000)
+        gap = f.nvars + rng.randint(1, 3000)
+        above = f.nvars + HEADER_VARS_FLOOR + 1
+        huge = above + 1 + rng.randint(0, 1000)
         F0 = normalise(raw)
         refuted = oracle.propagate(F0)[0]
 
-        for var, where in ((at, "at"), (above, "above"), (huge, "huge")):
+        for var, where in ((gap, "gap"), (above, "above"), (huge, "huge")):
             text = proof(var)
             if not oracle.rat(F0, [sign * var], sign * var):
                 self.flag("generator-error", formula=ftext, proof=text)
             results = self.run_engines(f, text, ftext)
             for engine, res in results.items():
                 raised = isinstance(res, ValueError) and "at most" in str(res)
-                if where == "at":
-                    if raised or isinstance(res, Exception):
-                        self.flag("field-mismatch", at_limit=str(res), formula=ftext,
-                                  proof=text, engine=engine)
-                    elif (res.ok, res.rat_steps, res.failed_step) != (
-                            (True, 0, -1) if refuted else (False, 1, -1)):
-                        self.flag("rejects-acceptable", formula=ftext, proof=text,
-                                  engine=engine)
-                    else:
-                        self.counts["bound_at_limit_accepted"] += 1
-                elif where == "above":
+                if where == "gap":
                     if raised:
-                        self.counts["bound_above_limit_refused"] += 1
                         self.flag("bound-refuses-valid", formula=ftext, proof=text,
                                   engine=engine, error=str(res))
                     elif isinstance(res, Exception):
                         self.flag("unexpected-exception", error=repr(res),
                                   formula=ftext, proof=text)
-                else:
-                    if raised:
-                        self.counts["bound_huge_refused"] += 1
+                    elif (res.ok, res.rat_steps, res.failed_step) != (
+                            (True, 0, -1) if refuted else (False, 1, -1)):
+                        self.flag("rejects-acceptable", formula=ftext, proof=text,
+                                  engine=engine)
                     else:
-                        self.flag("huge-literal-not-refused", formula=ftext,
-                                  proof=text, engine=engine, got=as_row(res))
+                        self.counts["bound_with_a_gap_accepted"] += 1
+                elif raised:
+                    self.counts["bound_above_limit_refused" if where == "above"
+                                else "bound_huge_refused"] += 1
+                else:
+                    self.flag("huge-literal-not-refused", formula=ftext,
+                              proof=text, engine=engine, got=as_row(res))
             self.steps_judged += 1
-            # the same number is fine once the text is long enough: padding
+            # the same number after a comment longer than it: the guard must not read it
             if where == "above":
                 padded = "c " + "x" * (var + 2) + "\n" + text
                 res = self.run_engine(self.sut.engines[0], f, padded)
-                # the padding changes nothing the oracle can see, and it decides
-                if not isinstance(res, Exception):
-                    self.counts["bound_padded_accepted"] += 1
+                if isinstance(res, ValueError) and "at most" in str(res):
+                    self.counts["bound_padded_still_refused"] += 1
+                else:
+                    self.flag("bound-reads-the-layout", formula=ftext, got=as_row(res))
 
     def family_tokens(self):
         rng = self.rng
         kind = rng.choice(("ok", "lenient", "bad"))
         if kind == "ok":
-            tok, val = rng.choice((("+1", 1), ("01", 1), ("-01", -1), ("+02", 2),
+            tok, val = rng.choice((("1", 1), ("01", 1), ("-01", -1), ("02", 2),
                                    ("-2", -2)))
             ftext = f"p cnf 2 1\n{tok} 0\n"
             ptext = f"{tok} 0\n"
@@ -998,7 +960,7 @@ class Harness:
             if got != [[val]] or \
                     [to_dimacs(l) for l in parse_proof(ptext)[0][1]] != [val]:
                 self.flag("parse-mismatch", token=tok, got=got)
-            self.counts["token_plus_or_leading_zero"] += 1
+            self.counts["token_leading_zero"] += 1
         elif kind == "lenient":
             tok = rng.choice(("1_0", "1_1", "٣", "１", "١٢",
                               "1\xa02", "2 1"))
@@ -1014,7 +976,8 @@ class Harness:
                     else:
                         self.flag("token-lenient", token=tok, reader=name)
         else:
-            tok = rng.choice(("--1", "- 1", "+-1", "1.0", "0x1", "1e1", "1-", "x"))
+            tok = rng.choice(("--1", "- 1", "+-1", "1.0", "0x1", "1e1", "1-", "x",
+                              "+1", "+0"))
             for name, fn in (("parse_dimacs", self.sut.parse), ("parse_proof", parse_proof)):
                 try:
                     fn(f"{tok} 0\n")
@@ -1107,9 +1070,9 @@ class Harness:
         self.counts["surface_negative_formula"] += 1
         res = {e: self.run_engine(e, f, "0\n") for e in self.sut.engines}
         for engine, r in res.items():
-            if not isinstance(r, Exception) and r.ok:
+            if not isinstance(r, ValueError):
                 self.flag("unvalidated-surface", clauses=raw, engine=engine,
-                          ok=True, satisfiable_as_dimacs=oracle.satisfiable(raw))
+                          got=as_row(r), satisfiable_as_dimacs=oracle.satisfiable(raw))
         rows = [as_row(r) for r in res.values()]
         if len(rows) == 2 and rows[0] != rows[1]:
             self.flag("unvalidated-surface", clauses=raw, rows=rows)
@@ -1135,13 +1098,17 @@ class Harness:
         f.add_dimacs([1, 2])
         f.add_dimacs([-2, 3])
         self.counts["surface_checker_negative_step"] += 1
-        try:
-            r = DRATChecker(f).check([("a", (-5,)), ("a", ())])
-        except (ValueError, IndexError):
-            return
-        if r.ok:
-            self.flag("unvalidated-surface", direct="DRATChecker", ok=True,
-                      satisfiable=oracle.satisfiable([[1, 2], [-2, 3]]))
+        for name, drive in (("check", lambda c: c.check([("a", (-5,)), ("a", ())])),
+                            ("check_step", lambda c: c.check_step("a", (-5,)))):
+            try:
+                drive(DRATChecker(f))
+            except ValueError:
+                continue
+            except Exception as e:
+                self.flag("unvalidated-surface", direct=name, error=repr(e))
+            else:
+                self.flag("unvalidated-surface", direct=name,
+                          satisfiable=oracle.satisfiable([[1, 2], [-2, 3]]))
 
     def family_floor(self):
         """The formula's bound, once a run: it allocates."""
@@ -1160,7 +1127,17 @@ class Harness:
                 self.flag("parse-mismatch", above_floor=text)
         # at the floor both engines still answer, and agree
         self.run_engines(f, "-1 0\n", f"1 {floor} 0\n")
-        # a CNF past u32: Python is fine, native cannot take the count
+        # the proof bound exactly, on both engines: a million variables each
+        small = self.sut.parse("p cnf 2 1\n1 2 0\n")
+        at = small.nvars + floor
+        res = self.run_engines(small, f"{at} 0\n", "p cnf 2 1\n1 2 0\n")
+        for engine, r in res.items():
+            if isinstance(r, Exception) or r.rat_steps != 1:
+                self.flag("bound-refuses-valid", at_limit=at, engine=engine,
+                          got=as_row(r))
+            else:
+                self.counts["bound_at_limit_accepted"] += 1
+        # a CNF past u32: the checkers size by what is used, so it is one answer
         huge = CNF(1 << 32)
         huge.add_dimacs([1])
         res = {e: self.run_engine(e, huge, "") for e in self.sut.engines}
@@ -1311,6 +1288,16 @@ class MinusZeroIsALiteral(Real):
         return check_proof(formula, proof, engine="python", **kw)
 
 
+class LengthOnlyDeletion(Real):
+    """The old rule, which refuted satisfiable formulas: length alone spares a clause."""
+
+    engines = ("python",)
+
+    def check(self, engine, formula, proof, **kw):
+        with mock.patch.object(DRATChecker, "_unit_at_root", lambda self, lits: False):
+            return check_proof(formula, proof, engine="python", **kw)
+
+
 class NoBound(Real):
     """A checker with no bound on a literal: answers instead of refusing."""
 
@@ -1344,6 +1331,8 @@ def self_test():
     expect("engines differ on one counter", NativeOffByOne(), ["engine-disagreement"])
     expect("parser keeps tautologies", KeepsTautologies(), ["parse-mismatch"])
     expect("parser refuses -0", MinusZeroIsALiteral(), ["parse-mismatch"])
+    expect("spares clauses by length alone", LengthOnlyDeletion(),
+           ["sat-accepted", "accepts-unacceptable", "field-mismatch"], instances=1500)
     expect("no bound on a literal", NoBound(), ["huge-literal-not-refused"],
            instances=30, families="family_bound")
 
@@ -1420,6 +1409,7 @@ def main(argv=None):
             mismatch_counts=dict(sorted(h.mismatches.items())),
             runtime_seconds=round(runtime, 1),
             findings=[seen[k] for k in sorted(seen)],
+            fixed=sorted(set(FIXED.values())),
             not_checked=NOT_CHECKED,
         ), indent=2) + "\n")
 

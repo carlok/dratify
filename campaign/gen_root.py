@@ -13,17 +13,14 @@ What a checker result is held to, all of it decided by `campaign/oracle.py`:
 
 * `ok=True` requires `not satisfiable(F)`. This is the primary question.
 * Every field of the verdict matches a walk of the proof by the oracle under the
-  rule dratify documents: a deletion is ignored only when the clause has at most
-  one literal (flavour `length-one`), and a step is RUP, or RAT on its first
-  literal, against the clauses present at that moment. Refuted stays refuted: a
-  deletion after the multiset is refuted does not un-refute it, the reading
-  drat-trim also takes (see `predict`).
-* A result that matches flavour `operational` in full also passes, so a checker
-  that ignores deletions of pseudo-unit clauses is not called wrong here.
+  rule dratify documents: a deletion is ignored when the clause is unit under the
+  root assignment, and all of them once the root has conflicted (flavour
+  `operational`), and a step is RUP, or RAT on its first literal, against the
+  clauses present at that moment.
 * The two engines, on text and on a list of steps, agree on every field.
 
-Known findings stay mismatches and the run exits non-zero while they stand. They
-are labelled, and an unlabelled mismatch reads UNEXPLAINED. Coverage counters are
+The findings this was written to catch are fixed, so nothing here carries a label
+any more: a mismatch reads UNEXPLAINED and the run exits non-zero. Coverage counters are
 computed from the oracle's walk, not from the checker's answer, so fixing a bug
 cannot zero a category and a checker cannot inflate one.
 """
@@ -60,18 +57,18 @@ FIELDS = ("ok", "reason", "steps", "rup_steps", "rat_steps", "deletions",
 JUDGED = ("ok", "reached_empty", "steps", "rup_steps", "rat_steps", "deletions",
           "ignored_deletions", "failed_step", "failed_set")
 
-# label prefix -> finding
-KNOWN = {"stale-root": "root-1", "engine:failed_clause": "root-2"}
+# label prefix -> finding, for findings still open. root-1 and root-2 are fixed.
+KNOWN: dict[str, str] = {}
 
 FINDINGS = [
-    {"id": "root-1", "severity": "Critical",
+    {"id": "root-1", "status": "fixed", "severity": "Critical",
      "summary": "Deleting a clause that is the reason for a root literal leaves "
                 "that literal assigned: both engines return ok=True on the "
                 "satisfiable (1)(-1 2) with `d -1 2 0`, `-2 0`, `0`."},
-    {"id": "root-2", "severity": "Bug",
+    {"id": "root-2", "status": "fixed", "severity": "Bug",
      "summary": "failed_clause differs between engines when a rejected step "
                 "repeats a literal: Python has it deduplicated, native raw."},
-    {"id": "root-3", "severity": "Note",
+    {"id": "root-3", "status": "documented", "severity": "Note",
      "summary": "Root refutation ends the checking: a UP-refuted input ignores "
                 "the proof entirely, and a deletion after a root conflict does "
                 "not un-refute. Sound, and how drat-trim reads it."},
@@ -81,8 +78,8 @@ NOT_CHECKED = [
     "resolvents_checked against the oracle: it is only compared between engines",
     "agreement with drat-trim: the binary is not used here, flavours come from "
     "the oracle",
-    "the `is_pseudo_unit` over-approximation: a result matching the oracle's "
-    "`operational` flavour passes even where drat-trim's reason test would differ",
+    "the `is_pseudo_unit` over-approximation: dratify's rule and the oracle's "
+    "`operational` flavour are the same test, and drat-trim's reason test can differ",
     "input clauses reaching the checker with repeated literals other than "
     "through parse_dimacs (CNF.add normalises; a hand-built CNF is not tried)",
     "engine='auto' and MemoryProof (text and lists of steps are)",
@@ -265,7 +262,9 @@ def valid_order(lemma, cur):
 
 
 def build_proof(rng, F, nvars, profile):
-    """A proof aimed at the root, walked over the `length-one` multiset as it goes."""
+    """A proof aimed at the root, walked over a multiset that honours every
+    deletion of two or more literals, so that it goes on to try what a kept reason
+    forbids. What the checker should say about the result is `predict`'s business."""
     cur = [list(c) for c in F if not tautological(c)]
     weights = PROFILES[profile]
     actions = list(weights)
@@ -398,13 +397,12 @@ def verdict(ok=False, reached_empty=False, steps=0, rup_steps=0, rat_steps=0,
                 failed_set=failed_set)
 
 
-def predict(F, steps, flavour="length-one", check_rat=True, apply_deletions=True):
+def predict(F, steps, flavour="operational", check_rat=True, apply_deletions=True):
     """What a correct forward checker reports, from `oracle.replay` alone.
 
-    Returns (verdict, analysis). A multiset refuted by propagation stays refuted:
-    `replay` would let a later deletion undo that, but the formula is already
-    known unsatisfiable, and flavour `operational` says the proof is over. The
-    verdicts after that point are the oracle's own remark: every addition passes.
+    Returns (verdict, analysis). A multiset refuted by propagation stays refuted,
+    as flavour `operational` says: the proof is over, so a later deletion is
+    ignored and, by the oracle's own remark, every addition passes.
     """
     clean = [list(c) for c in F if not tautological(c)]
     if oracle.propagate(clean)[0]:
@@ -492,25 +490,21 @@ def count_coverage(inst, cnt):
         cnt["sat_with_empty_clause_attempt"] += 1
 
     cur = [list(c) for c in clean]
-    sticky: set[int] = set()
     nvars = inst["nvars"]
     for j, refuted in info["walk"]:
         conflict, root = oracle.propagate(cur)
-        sticky |= root
         lits = set(j.clause)
         cnt["steps_default_mode"] += 1
         if j.kind == "d":
             if j.applied:
                 cnt["deletions_applied"] += 1
-                if refuted:
-                    cnt["deletions_after_root_conflict"] += 1
-                else:
-                    after_c, after = oracle.propagate(oracle.remove_one(cur, j.clause)[0])
-                    if not after_c and not root <= after:
-                        cnt["reason_deletions"] += 1
                 cur, _ = oracle.remove_one(cur, j.clause)
+            elif refuted:
+                cnt["deletions_after_root_conflict"] += 1
             elif len(lits) <= 1:
                 cnt["deletions_ignored_unit"] += 1
+            elif j.present:
+                cnt["reason_deletions"] += 1
             else:
                 cnt["deletions_ignored_absent"] += 1
             continue
@@ -543,8 +537,6 @@ def count_coverage(inst, cnt):
                 cnt["lemma_unit_literal"] += 1
             elif len(free) == 1:
                 cnt["lemma_unit_at_root"] += 1
-            if not refuted and all(-l in sticky and -l not in root for l in lits):
-                cnt["rat_lemma_falsified_on_retracted_root"] += 1
         before_conflict = conflict
         cur.append(list(j.clause))
         if not before_conflict and oracle.propagate(cur)[0]:
@@ -561,8 +553,7 @@ REQUIRED = [
     "additions_after_root_conflict", "deletions_after_root_conflict",
     "empty_clause_accepted", "empty_clause_rejected", "steps_accepted_only_by_rat",
     "steps_rejected", "deletions_applied", "deletions_ignored_unit",
-    "deletions_ignored_absent", "reason_deletions",
-    "rat_lemma_falsified_on_retracted_root", "lemma_repeated_literal",
+    "deletions_ignored_absent", "reason_deletions", "lemma_repeated_literal",
     "lemma_tautological", "lemma_fresh_variable", "runs_rup_only",
     "runs_deletions_off", "engine_comparisons", "exhaustive_instances",
     "exhaustive_satisfiable",
@@ -595,31 +586,13 @@ def same_verdict(a, b):
     return all(a[k] == b[k] for k in JUDGED)
 
 
-def classify(F, steps, sat, got, lo, lo_info, op, mode):
+def classify(sat, got, want):
     """The label for a result that failed, or None when it passes."""
-    false_refutation = got["ok"] and sat
-    if not false_refutation:
-        if same_verdict(got, lo):
-            return None
-        if mode[1] and same_verdict(got, op):
-            return None
-
-    if lo_info["reason_deletion"]:
-        if false_refutation:
-            return "stale-root:false-refutation"
-        # the first step the oracle would not pass, if the checker went past it
-        for j, refuted in lo_info["walk"]:
-            if j.kind == "a" and not refuted and not j.acceptable:
-                if got["failed_step"] == -1 or got["failed_step"] > j.index:
-                    if not j.preserves_sat:
-                        return "stale-root:accepted-not-sat-preserving"
-                    return "stale-root:accepted-not-rup-or-rat"
-        if got["ok"] and not lo["ok"]:
-            return "stale-root:accepted-empty-unjustified"
-        return "stale-root:counts-differ"
-    if false_refutation:
+    if got["ok"] and sat:
         return "UNEXPLAINED:false-refutation"
-    wrong = sorted(k for k in JUDGED if got[k] != lo[k])
+    if same_verdict(got, want):
+        return None
+    wrong = sorted(k for k in JUDGED if got[k] != want[k])
     return "UNEXPLAINED:" + ",".join(wrong)
 
 
@@ -638,11 +611,9 @@ def judge_instance(inst, engines, cnt=None, modes=MODES):
                 cnt["runs_rup_only"] += 1
             if not apply_deletions:
                 cnt["runs_deletions_off"] += 1
-        lo, lo_info = predict(F, steps, "length-one", check_rat, apply_deletions)
+        want, _ = predict(F, steps, "operational", check_rat, apply_deletions)
         if cnt is not None:
-            cnt["steps_judged"] += lo["steps"]
-        op_mode = (predict(F, steps, "operational", check_rat, apply_deletions)[0]
-                   if apply_deletions else lo)
+            cnt["steps_judged"] += want["steps"]
         results = {}
         for name, run in engines.items():
             for form, proof in (("text", text), ("list", lst)):
@@ -671,10 +642,10 @@ def judge_instance(inst, engines, cnt=None, modes=MODES):
             if view in seen:
                 continue
             seen.append(view)
-            label = classify(F, steps, sat, view, lo, lo_info, op_mode, mode)
+            label = classify(sat, view, want)
             if label:
                 labels.append((label, f"{key} mode={mode} got={_show(view)} "
-                                      f"want={_show(lo)}"))
+                                      f"want={_show(want)}"))
     return labels
 
 
@@ -766,25 +737,15 @@ class BlindToInputConflict(DRATChecker):
 
     def __init__(self, *a, **k):
         super().__init__(*a, **k)
-        self._root_conflict = False
+        self._root_conflict = self._input_refuted = False
 
 
-class IgnoresPseudoUnitDeletions(DRATChecker):
-    """Reads deletion the way flavour `operational` does: the harness must not
-    call this wrong, so a fix in that direction would make this corner pass."""
+class LengthOnlyDeletions(DRATChecker):
+    """root-1: only clauses of at most one literal are spared, so a reason goes
+    while the literal it implied stays. A return of that has to fail this run."""
 
-    def check_step(self, kind, lits):
-        if kind == "d" and self.apply_deletions:
-            distinct = list(dict.fromkeys(lits))
-            self._grow(distinct)
-            val = self.prop.val
-            true = sum(val[l] == 1 for l in distinct)
-            false = sum(val[l] == 2 for l in distinct)
-            if self._root_conflict or (true == 1 and true + false == len(distinct)):
-                self.result.steps += 1
-                self.result.ignored_deletions += 1
-                return True
-        return super().check_step(kind, lits)
+    def _unit_at_root(self, lits):
+        return False
 
 
 class DeletesUnits(DRATChecker):
@@ -827,7 +788,7 @@ def stub_perfect(cnf, proof, check_rat, apply_deletions):
     F = [[to_dimacs(l) for l in c] for c in f.clauses]
     steps = parse_proof(proof) if isinstance(proof, str) else proof
     dimacs = [(k, [to_dimacs(l) for l in lits]) for k, lits in steps]
-    v, _ = predict(F, dimacs, "length-one", check_rat, apply_deletions)
+    v, _ = predict(F, dimacs, "operational", check_rat, apply_deletions)
     fc = None if v["failed_set"] is None else tuple(
         sorted(from_dimacs(l) for l in v["failed_set"]))
     return dict(ok=v["ok"], reason="stub", steps=v["steps"], rup_steps=v["rup_steps"],
@@ -845,10 +806,10 @@ def self_test(seed, instances):
         ("0.1.6 bug: no root extension", {"stub": mutant(NoRootExtension)}, True),
         ("blind to a refuted input", {"stub": mutant(BlindToInputConflict)}, True),
         ("deletes unit clauses", {"stub": mutant(DeletesUnits)}, True),
+        ("root-1: spares clauses by length alone", {"stub": mutant(LengthOnlyDeletions)},
+         True),
         ("engines disagree", {"a": stub_perfect, "b": stub_rejects_everything}, True),
         ("the oracle itself", {"stub": stub_perfect}, False),
-        ("ignores pseudo-unit deletions", {"stub": mutant(IgnoresPseudoUnitDeletions)},
-         False),
     ]
     failed = 0
     for name, engines, should_flag in cases:
@@ -943,7 +904,7 @@ def main(argv=None):
             "not_checked": NOT_CHECKED,
         }, indent=2) + "\n")
 
-    # Known findings stay mismatches: only their fixes make this pass.
+    # Anything here is a regression, or something new.
     if labels or missing or "native" not in engines:
         print(f"exit 1: {len(labels)} labels, {unexplained} of them unexplained, "
               f"{len(missing)} categories at zero")

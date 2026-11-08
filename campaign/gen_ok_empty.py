@@ -12,12 +12,8 @@ The questions, all asked of both engines through every proof shape:
   primary question, and the generator aims at it with bogus endings, including
   a RAT step made possible by deleting the reason of a root-level literal.
 * Every step is judged by the oracle under the reading dratify documents: RUP,
-  or RAT on the first literal, with deletions of clauses of at most one literal
-  ignored (`length-one`).
-
-Where dratify accepts a step that reading rejects, the harness models what it
-appears to do (keeping the root assignment after a clause is deleted) only to
-label the mismatch. That model never decides what is right.
+  or RAT on the first literal, with deletions of clauses unit under the root
+  assignment ignored, and all of them once the root has conflicted (`operational`).
 
     python -m campaign.gen_ok_empty                # reproduces the reported run
     python -m campaign.gen_ok_empty --self-test    # the harness against wrong stubs
@@ -25,8 +21,8 @@ label the mismatch. That model never decides what is right.
 The native engine comes from `cdclkit_native`, as in tests/test_differential.py,
 because both engines are the point. The run fails if it is missing.
 
-Exit status: 0 only with no mismatch and no empty category. Known findings stay
-mismatches, so this exits 1 until they are fixed. Labels say which are known.
+Exit status: 0 only with no mismatch and no empty category. The findings this was
+written to catch are fixed and carry no label now, so a return of one fails the run.
 """
 
 from __future__ import annotations
@@ -68,25 +64,20 @@ REQUIRED = (
     "input_contains_empty_clause", "repeated_literal_rejections",
 )
 
-#: Hits rather than aims: these go to zero when the findings are fixed.
-HITS = ("accepted_beyond_length_one_retained",
-        "accepted_beyond_length_one_after_real_conflict",
-        "sat_breaking_step_accepted", "retained_on_unsat_formula")
-
 FINDINGS = [
-    {"id": "ok_empty-1", "severity": "Critical",
+    {"id": "ok_empty-1", "status": "fixed", "severity": "Critical",
      "summary": "ok=True on a satisfiable formula, both engines: deleting a "
                 "root literal's reason keeps the literal but removes the RAT "
                 "candidate, so its negation passes as RAT and refutes."},
-    {"id": "ok_empty-2", "severity": "Bug",
+    {"id": "ok_empty-2", "status": "fixed", "severity": "Bug",
      "summary": "failed_clause differs between engines when the failing step "
                 "repeats a literal: Python removes repeats, the native wrapper "
                 "returns the raw step."},
-    {"id": "ok_empty-3", "severity": "Note",
+    {"id": "ok_empty-3", "status": "documented", "severity": "Note",
      "summary": "A top-level conflict is permanent: the clauses behind it can "
                 "be deleted and `0` still passes, as in the operational flavour, "
                 "not length-one. The formula is unsatisfiable, so no wrong verdict."},
-    {"id": "ok_empty-4", "severity": "Note",
+    {"id": "ok_empty-4", "status": "open", "severity": "Note",
      "summary": "Where a refutation ends: conflict without a written `0` is "
                 "rejected, and steps after the empty clause, or any proof on a "
                 "UP-refuted input, are not read, so `steps` stops short."},
@@ -535,20 +526,9 @@ def compare_results(run, inst, flags, label, a, b, engines):
     if a == b:
         return
     differ = [f for f in FIELDS if a.get(f) != b.get(f)]
-    known = (differ == ["failed_clause"]
-             and a["failed_clause"] is not None and b["failed_clause"] is not None
-             and distinct(a["failed_clause"]) == distinct(b["failed_clause"]))
-    run.mismatch("ok_empty-2" if known else "UNEXPLAINED",
+    run.mismatch("UNEXPLAINED",
                  f"{label}: fields differ ({','.join(differ)})", inst, flags, engines,
                  {f: (a.get(f), b.get(f)) for f in differ})
-
-
-def rat_with(extended, current, clause):
-    """RAT on the first literal, with candidates from `current` and RUP on `extended`."""
-    pivot = clause[0]
-    lits = set(clause)
-    return all(oracle.rup(extended, lits | (set(d) - {-pivot}))
-               for d in current if -pivot in d)
 
 
 def judge(run, inst, r, flags, engine):
@@ -582,10 +562,6 @@ def judge(run, inst, r, flags, engine):
         wrong("accepted a proof with no empty clause", r)
 
     current = [list(c) for c in F]
-    retained = set(oracle.propagate(F)[1])  # for labelling only
-    hybrid_conflict = False                 # the root conflict dratify would see
-    real_conflict = False                   # and whether the clauses present agree
-    never_differs = True
     n_rup = n_rat = n_del = n_ign = 0
     outcome = None
 
@@ -600,15 +576,15 @@ def judge(run, inst, r, flags, engine):
                 n_ign += 1
                 run.tally("deletions_ignored")
             elif apply_deletions:
-                current, present = oracle.remove_one(current, clause)
-                if present:
+                after, present = oracle.remove_one(current, clause)
+                if (present and not oracle.propagate(current)[0]
+                        and not oracle.is_pseudo_unit(current, clause)):
+                    current = after
                     n_del += 1
                     run.tally("deletions_applied")
                 else:
                     n_ign += 1
                     run.tally("deletions_ignored")
-            if retained - set(oracle.propagate(current)[1]):
-                never_differs = False
             continue
 
         is_rup = oracle.rup(current, clause)
@@ -621,7 +597,7 @@ def judge(run, inst, r, flags, engine):
         if r["failed_step"] == j:
             if acceptable:
                 run.mismatch("UNEXPLAINED", "rejected a step that is RUP or RAT on its "
-                             "first literal under length-one", inst, flags, engine, j)
+                             "first literal", inst, flags, engine, j)
             else:
                 run.tally("rejected_steps_agreeing")
                 if not clause:
@@ -638,25 +614,8 @@ def judge(run, inst, r, flags, engine):
             break
 
         if not acceptable:
-            # dratify went on past a step the documented reading refuses. Label
-            # it; only the end-to-end question below is a verdict on `ok`.
-            extended = current + [[l] for l in retained]
-            explained = hybrid_conflict or oracle.rup(extended, clause) or bool(
-                check_rat and clause and rat_with(extended, current, clause))
-            if not explained:
-                wrong("accepted a step that neither reading explains", (j, clause))
-            elif real_conflict:
-                run.tally("accepted_beyond_length_one_after_real_conflict")
-                outcome = "real_conflict"
-            else:
-                run.tally("accepted_beyond_length_one_retained")
-                outcome = "retained"
-                if not sat:
-                    run.tally("retained_on_unsat_formula")
-                elif not oracle.preserves_sat(current, clause):
-                    run.tally("sat_breaking_step_accepted")
-                    run.mismatch("ok_empty-1", "accepted a step that breaks satisfiability",
-                                 inst, flags, engine, (j, clause))
+            wrong("accepted a step the oracle refuses", (j, clause))
+            outcome = "accepted"
             break
 
         if is_rup:
@@ -668,18 +627,9 @@ def judge(run, inst, r, flags, engine):
             run.tally("empty_step_accepted")
             break
         current.append(list(clause))
-        extended = current + [[l] for l in retained]
-        conflict, assigned = oracle.propagate(extended)
-        retained |= set(assigned)
-        if retained - set(oracle.propagate(current)[1]):
-            never_differs = False
-        if conflict and not hybrid_conflict:
-            hybrid_conflict = True
-            real_conflict = oracle.propagate(current)[0]
 
     if r["ok"] and sat:
-        label = "ok_empty-1" if outcome == "retained" else "UNEXPLAINED"
-        run.mismatch(label, "ok=True on a satisfiable formula", inst, flags, engine, r)
+        wrong("ok=True on a satisfiable formula", r)
 
     if outcome is None:             # every step agreed: the ending is now determined
         if has_empty:
@@ -697,7 +647,7 @@ def judge(run, inst, r, flags, engine):
             wrong("rup_steps + rat_steps is not the additions accepted", r)
         if r["deletions"] != n_del or r["ignored_deletions"] != n_ign:
             wrong("deletions miscounted", (r, n_del, n_ign))
-        if never_differs and (r["rup_steps"], r["rat_steps"]) != (n_rup, n_rat):
+        if (r["rup_steps"], r["rat_steps"]) != (n_rup, n_rat):
             wrong("rup_steps and rat_steps differ from the oracle's", (r, n_rup, n_rat))
         if r["failed_clause"] is not None:
             wrong("failed_clause set on a proof with no failed step", r)
@@ -872,6 +822,10 @@ def model_check(bug, inst, proof, steps, check_rat, apply_deletions, engine):
             if len(set(clause)) <= 1:
                 r["ignored_deletions"] += 1
             elif apply_deletions:
+                if bug != "retained" and (oracle.propagate(current)[0]
+                                          or oracle.is_pseudo_unit(current, clause)):
+                    r["ignored_deletions"] += 1
+                    continue
                 current, present = oracle.remove_one(current, clause)
                 r["deletions" if present else "ignored_deletions"] += 1
             continue
@@ -879,7 +833,11 @@ def model_check(bug, inst, proof, steps, check_rat, apply_deletions, engine):
         is_rup = oracle.rup(view, clause)
         is_rat = False
         if not is_rup and check_rat and clause:
-            is_rat = rat_with(view, current, clause) if bug == "retained" else oracle.rat(current, clause, clause[0])
+            # candidates from the clauses present, RUP on what the old rule kept
+            pivot, lits = clause[0], set(clause)
+            is_rat = (all(oracle.rup(view, lits | (set(d) - {-pivot}))
+                          for d in current if -pivot in d)
+                      if bug == "retained" else oracle.rat(current, clause, clause[0]))
         if is_rup:
             r["rup_steps"] += 1
         elif is_rat:
@@ -923,7 +881,7 @@ STUBS = {
     "reached_always": "ok and reached_empty differ",
     "reads_tail": "a tail changed the result",
     "d0_is_empty": "accepted a proof with no empty clause",
-    "retained": "ok_empty-1: ok=True on a satisfiable formula",
+    "retained": "ok=True on a satisfiable formula",
     "engines_differ": "python vs native",
     "ignores_malformed": "got a verdict",
 }
@@ -991,8 +949,6 @@ def main(argv=None):
           f"{run.counts['oracle_steps_judged']} oracle-judged steps, {elapsed:.1f}s")
     for name in REQUIRED:
         print(f"  {name:48} {run.counts[name]}")
-    for name in HITS:
-        print(f"  (hit) {name:42} {run.counts[name]}")
     for key, n in sorted(run.mismatches.items()):
         print(f"MISMATCH {n:7} {key}\n         first: {json.dumps(run.examples[key], default=str)[:600]}")
     if empty:
@@ -1004,7 +960,7 @@ def main(argv=None):
             "seeds": [args.seed],
             "instances": run.instances,
             "steps": run.counts["oracle_steps_judged"],
-            "per_category_counts": {k: run.counts[k] for k in (*REQUIRED, *HITS)},
+            "per_category_counts": {k: run.counts[k] for k in REQUIRED},
             "mismatches": dict(sorted(run.mismatches.items())),
             "runtime_seconds": round(elapsed, 1),
             "findings": FINDINGS,

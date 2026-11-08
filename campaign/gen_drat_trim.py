@@ -23,9 +23,10 @@ literal, as it is in dratify and in drat-trim's default:
     bwd-skip   -p -d        rate's "drat-trim compatibility"
     ========== ============ ===========================================
 
-dratify's documented reading is the oracle's ``length-one`` flavour: deletions
-are applied, except that a deletion of a clause of at most one literal is
-ignored. ``DOCUMENTED_FLAVOUR`` names it, and every dratify verdict is judged
+dratify's documented reading is the oracle's ``operational`` flavour: deletions
+are applied, except that a deletion of a clause unit under the root assignment is
+ignored, and all of them once the root has conflicted. So rate's ``fwd-skip`` should
+agree with it nearly always. ``DOCUMENTED_FLAVOUR`` names it, and every dratify verdict is judged
 against it and against ``satisfiable`` before any external checker is consulted.
 
 What a disagreement can be:
@@ -52,12 +53,13 @@ import subprocess
 import sys
 import tempfile
 import time
+from unittest import mock
 
 from campaign import oracle
 from dratify import DRATChecker, check_proof, parse_dimacs, parse_proof, register_native
 
 CORNER = "drat_trim"
-DOCUMENTED_FLAVOUR = "length-one"
+DOCUMENTED_FLAVOUR = "operational"
 RESULT_FIELDS = ("ok", "reason", "steps", "rup_steps", "rat_steps", "deletions",
                  "ignored_deletions", "resolvents_checked", "failed_step",
                  "failed_clause", "reached_empty")
@@ -69,8 +71,6 @@ RATE_MODES = {
     "bwd-skip": (["-p", "-d"], "bwd", "operational"),
 }
 TIMEOUT = 20
-#: every finding whose cause this generator can recognise, for labelling only
-STALE_ROOT_FINDING = "drat_trim-1"
 CRITICAL_KINDS = {"ok_on_satisfiable", "rup_not_implied", "accepted_not_preserving"}
 BUG_KINDS = {"accepted_unacceptable", "false_rejection", "engine_disagreement",
              "field_mismatch", "verdict_mismatch"}
@@ -242,6 +242,17 @@ class EngineSkew(Dratify):
         if engine == "native":
             r["deletions"] += 1
         return r
+
+
+class LengthOnlyDeletion(Dratify):
+    """drat_trim-1, now fixed: only clauses of at most one literal are spared."""
+
+    name = "stub: spares clauses by length alone"
+
+    @staticmethod
+    def run(formula, steps, engine):
+        with mock.patch.object(DRATChecker, "_unit_at_root", lambda self, lits: False):
+            return Dratify.run(formula, steps, "python")
 
 
 class Reference:
@@ -490,12 +501,16 @@ def analyse(formula, steps, checker, external, counts):
             counts["additions_rat_only"] += 1
         else:
             counts["additions_unacceptable"] += 1
-    counts["deletions_shrinking_the_root"] += walk.shrinks
+    # what the proof tried: under the documented reading no deletion shrinks the root
+    tried = walks["length-one"]
+    counts["deletions_shrinking_the_root"] += tried.shrinks
+    if walk.shrinks:
+        a.flag("Critical", "root_shrank_under_the_documented_rule", str(walk.shrinks))
     counts["proofs_with_implicit_empty_clause"] += (
         walk.first_bad is None and walk.refuted_at not in (None, 0) and not walk.explicit)
     for category in a.notes:
         counts[category] += 1
-    a.stale = walk.root_shrunk_at is not None
+    a.stale = tried.root_shrunk_at is not None
     a.verdicts = verdicts
     return a
 
@@ -893,8 +908,7 @@ def campaign(seed, total, checker, external, workdir, keep_examples=True):
             counts["solver_unsat_proofs_rate_fwd_skip_rejects"] += (
                 a.verdicts.get("rate/fwd-skip") is False and not oracle.satisfiable(formula))
         for severity, kind, detail in a.mismatches:
-            label = STALE_ROOT_FINDING if a.stale and kind in (
-                CRITICAL_KINDS | {"accepted_unacceptable", "field_mismatch"}) else None
+            label = None
             mismatches[(severity, kind, label)] += 1
             counts[f"mismatch_{kind}"] += 1
             examples.setdefault((severity, kind, label), (family, formula, steps, detail))
@@ -1001,7 +1015,6 @@ def main_run(args):
         print("mismatches:" if mismatches else "mismatches: none")
         print_mismatches(mismatches, examples, Dratify, external)
 
-    findings = sorted({label for (_, _, label) in mismatches if label})
     report = {
         "corner": CORNER,
         "seeds": [args.seed],
@@ -1015,12 +1028,12 @@ def main_run(args):
             "drat-trim": tool_version(drat_trim) if drat_trim else
             "NOT RUN: not installed and not available as a package",
         },
-        "findings": ([
-            {"id": STALE_ROOT_FINDING, "severity": "Critical",
-             "summary": "dratify keeps a literal in the root assignment after deleting "
-                        "the only clause implying it, on both engines, so it returns "
+        "findings": [
+            {"id": "drat_trim-1", "status": "fixed", "severity": "Critical",
+             "summary": "dratify kept a literal in the root assignment after deleting "
+                        "the only clause implying it, on both engines, so it returned "
                         "ok=True on satisfiable formulas"}
-        ] if STALE_ROOT_FINDING in findings else []) + [
+        ] + [
             {"id": ident, "severity": "Note", "summary": summary}
             for ident, category, summary in NOTE_FINDINGS if counts[category]],
         "mismatch_kinds": [
@@ -1097,6 +1110,10 @@ def self_test(args):
         _, kinds, _ = run(EngineSkew)
         expect("engines that differ on one field are flagged",
                "engine_disagreement" in kinds)
+
+        _, kinds, _ = run(LengthOnlyDeletion)
+        expect("the old deletion rule is flagged as a soundness failure",
+               kinds & CRITICAL_KINDS, str(sorted(kinds)))
 
         print("the documented semantics, computed by the oracle:")
         counts, kinds, mismatches = run(Reference)
