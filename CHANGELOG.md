@@ -27,8 +27,19 @@ crate. The two are released together and are meant to be a matching pair; from
   deletion is ignored, because the assignment there depends on watch order. With
   `apply_deletions=False`, nothing changes. Found by the soundness campaign.
 
+- **A comment ended at a form feed, so a satisfiable file could be refuted.**
+  `str.splitlines` ends a line at nine characters besides the newline, and both
+  parsers used it, so the rest of a comment was read as text. `p cnf 1 1`, `c<FF>p
+  cnf 1 2`, `1 0`, `c<FF>-1 0` parsed to `(1) (-1)` and got past `strict=True`, on a
+  file minisat, cadical and kissat call satisfiable. A line now ends at `\n`, with
+  one optional `\r` before it, in `parse_dimacs`, `parse_proof` and
+  `parse_dimacs_file`, which no longer lets universal newlines rewrite a stray
+  `\r`. Found by the soundness campaign.
+
 ### Changed
 
+- CR-only line endings raise `ValueError`, as does a `\r` between tokens. They were
+  read as line breaks, which nothing else that reads these files agrees on.
 - `CheckResult.report()` no longer calls every ignored deletion a unit deletion.
 
 ### Documentation

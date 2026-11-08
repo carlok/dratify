@@ -262,6 +262,38 @@ class CNF:
 # --------------------------------------------------------------------------
 
 
+#: Whitespace around a line. `str.strip()` also takes Unicode's, so a no-break
+#: space before a `c` would make a clause line look like a comment.
+_LINE_SPACE = " \t\x0b\x0c"
+
+
+def _lines(text: str) -> list[str]:
+    """Split text into lines the way a DIMACS reader does.
+
+    A line ends at ``\\n``, and one ``\\r`` before it goes too, so CRLF reads.
+    `str.splitlines` ends a line at nine more characters, form feed among them,
+    so a comment stopped early and the rest of it became a clause: a satisfiable
+    file was refuted, past `strict=True`. minisat, cadical and kissat all end a
+    comment at the newline.
+
+    A file with no ``\\n`` at all is refused rather than read as one long line:
+    if its first line is a comment, that would be the whole file gone.
+    """
+    if "\r" in text and "\n" not in text:
+        raise ValueError(
+            "line 1: carriage returns and no newline; CR-only line endings are "
+            "not supported, convert the file to LF or CRLF")
+    return [ln[:-1] if ln.endswith("\r") else ln for ln in text.split("\n")]
+
+
+def _refuse_stray_cr(lineno: int, line: str) -> None:
+    """A line that is not a comment has no use for a carriage return."""
+    if "\r" in line:
+        raise ValueError(
+            f"line {lineno}: carriage return inside a line; lines end at a "
+            f"newline, and CR-only line endings are not supported")
+
+
 def parse_dimacs(text: str, strict: bool = False) -> CNF:
     """Parse DIMACS CNF text.
 
@@ -269,19 +301,24 @@ def parse_dimacs(text: str, strict: bool = False) -> CNF:
     clauses split across lines, a missing or wrong header, ``%`` / trailing
     ``0`` terminators from SATLIB files, and blank lines.  With ``strict=True``
     a header mismatch raises instead of being repaired.
+
+    A line ends at a newline, with CRLF accepted; anything else inside a comment
+    stays in the comment.  Pass text that kept its line endings:
+    `parse_dimacs_file` does, and `Path.read_text()` does not.
     """
     f = CNF()
     declared_vars = declared_clauses = None
     pending: list[int] = []
     tautologies = 0  # clauses read but dropped by CNF.add
-    for lineno, raw in enumerate(text.splitlines(), 1):
-        line = raw.strip()
+    for lineno, raw in enumerate(_lines(text), 1):
+        line = raw.strip(_LINE_SPACE)
         if not line:
             continue
         head = line[0]
         if head == "c":
-            f.comments.append(line[1:].strip())
+            f.comments.append(line[1:].strip(_LINE_SPACE))
             continue
+        _refuse_stray_cr(lineno, line)
         if head == "%":
             break  # SATLIB terminator
         if head == "p":
@@ -352,7 +389,9 @@ def parse_dimacs(text: str, strict: bool = False) -> CNF:
 
 
 def parse_dimacs_file(path: str, strict: bool = False) -> CNF:
-    with open(path, "r", encoding="utf-8", errors="replace") as fh:
+    # newline="": universal newlines would turn a stray \r into a line break
+    # before the parser could keep it in its comment.
+    with open(path, "r", encoding="utf-8", errors="replace", newline="") as fh:
         return parse_dimacs(fh.read(), strict=strict)
 
 
