@@ -250,6 +250,7 @@ pub struct Checker {
     occ: Vec<Vec<u32>>,
     index: HashMap<Vec<Lit>, Vec<u32>>,
     root_conflict: bool,
+    input_refuted: bool,
     check_rat: bool,
     apply_deletions: bool,
     result: CheckResult,
@@ -290,6 +291,7 @@ impl Checker {
             occ: vec![Vec::new(); 2 * nvars as usize],
             index: HashMap::new(),
             root_conflict: false,
+            input_refuted: false,
             check_rat,
             apply_deletions,
             result: CheckResult { failed_step: -1, ..Default::default() },
@@ -303,6 +305,7 @@ impl Checker {
             c.insert(distinct(cl).into_owned());
         }
         c.root_conflict = c.root_conflict || c.propagate_root();
+        c.input_refuted = c.root_conflict;
         c
     }
 
@@ -562,21 +565,33 @@ impl Checker {
         }
     }
 
+    /// Read `steps` and conclude, on a checker that may already be in use.
+    ///
+    /// This tested `root_conflict` on entry, which a verified lemma also sets,
+    /// so a second call claimed the input was refuted and reported an empty
+    /// clause nobody derived. Only the input being refuted skips the proof, and
+    /// a proof that is already over, one way or the other, is not read further.
     pub fn check(&mut self, steps: &[(bool, Vec<Lit>)]) -> CheckResult {
-        if self.root_conflict {
+        if self.input_refuted {
             self.result.ok = true;
             self.result.reached_empty = true;
             self.result.reason =
                 "input formula is refuted by unit propagation alone".to_string();
             return self.result.clone();
         }
-        for (is_del, lits) in steps {
-            if !self.check_step(*is_del, lits) {
-                self.result.ok = false;
-                return self.result.clone();
-            }
-            if self.result.reached_empty {
-                break;
+        if self.result.failed_step != -1 {
+            self.result.ok = false;
+            return self.result.clone();
+        }
+        if !self.result.reached_empty {
+            for (is_del, lits) in steps {
+                if !self.check_step(*is_del, lits) {
+                    self.result.ok = false;
+                    return self.result.clone();
+                }
+                if self.result.reached_empty {
+                    break;
+                }
             }
         }
         if self.result.reached_empty {
@@ -760,6 +775,44 @@ mod tests {
             .check(&[(false, vec![d(1), d(1)])]);
         assert_eq!(r.failed_step, 1);
         assert_eq!(r.failed_clause, vec![d(1), d(1)]);
+    }
+
+    /// (1 2) (1 -2) (-1 2) (-1 -2), which the single lemma (1) refutes at the root.
+    fn square() -> Vec<Vec<Lit>> {
+        vec![vec![0, 2], vec![0, 3], vec![1, 2], vec![1, 3]]
+    }
+
+    #[test]
+    fn a_used_checker_does_not_report_an_empty_clause_nobody_derived() {
+        let whole = Checker::new(2, &square(), true, true).check(&[(false, vec![0])]);
+        assert!(!whole.reached_empty);
+        let mut c = Checker::new(2, &square(), true, true);
+        assert!(c.check_step(false, &[0]));
+        let after = c.check(&[]);
+        assert!(!after.ok && !after.reached_empty, "{}", after.reason);
+        assert_eq!(after.reason, whole.reason);
+    }
+
+    #[test]
+    fn a_proof_in_two_pieces_reads_the_second() {
+        let mut c = Checker::new(2, &square(), true, true);
+        c.check(&[(false, vec![0])]);
+        let r = c.check(&[(false, vec![2]), (false, vec![])]);
+        assert!(r.ok, "{}", r.reason);
+        assert_eq!((r.steps, r.rup_steps), (3, 3));
+        assert_eq!(r.reason, "empty clause derived and every step verified");
+        assert_eq!(c.check(&[(false, vec![2])]).steps, 3, "it is over");
+    }
+
+    #[test]
+    fn a_rejected_step_keeps_its_reason() {
+        let f = vec![vec![1, 2]];
+        let mut c = Checker::new(2, &f, false, true);
+        assert!(!c.check_step(false, &[0, 3]));
+        let r = c.check(&[(false, vec![])]);
+        assert_eq!(r.failed_step, 1);
+        assert_eq!(r.steps, 1);
+        assert_eq!(r.reason, "clause is not RUP (RAT checking disabled)");
     }
 
     #[test]
