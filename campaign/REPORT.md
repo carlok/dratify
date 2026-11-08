@@ -6,8 +6,9 @@ Hunt 2014 and Rebola-Pardo and Biere 2018), and one seeded generator per corner.
 
 **Three Critical defects were found and fixed on this branch, none yet released.** The deleted
 reason clause is the serious one: every release from 0.1.0 to 0.1.10 accepts the refutation below
-of a satisfiable formula, on default flags, through proof text. Each version was installed from
-PyPI and run on it, with the Python engine.
+of a satisfiable formula, on default flags, through proof text. Each version was installed and run
+on it: the wheels from PyPI on the Python engine, the crates from crates.io directly, and
+`cdclkit-native` 0.1.1 to 0.1.7, which embed the crate.
 
 ```
 p cnf 2 2        d -1 2 0

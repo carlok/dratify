@@ -91,7 +91,7 @@ FIXED = {
 
 NOT_CHECKED = [
     "binary DRAT: dratify reads text only",
-    "drat-trim: not installed here and never run; what is said of it comes from "
+    "drat-trim: not run in this corner (gen_drat_trim.py runs it); what is said of it here comes from "
     "this repo's docs and the oracle's flavours",
     "octal readings: fscanf %i takes 010 as 8 and dratify as 10, not compared",
     "the % terminator and clauses after it, and headers with extra tokens "
