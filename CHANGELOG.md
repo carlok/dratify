@@ -36,6 +36,21 @@ crate. The two are released together and are meant to be a matching pair; from
   `parse_dimacs_file`, which no longer lets universal newlines rewrite a stray
   `\r`. Found by the soundness campaign.
 
+- **`DRATChecker` used directly still had the hole 0.1.7 closed.** Validation lived
+  in `check_proof` only, so `DRATChecker(f).check([("a", (-1,)), ("a", ())])` got
+  `ok=True` on the satisfiable formula `(1)`, and `check_step` read an unknown kind
+  as an addition. `check`, `check_step` and the constructor now validate what they
+  are given, and `check_proof` validates `CNF.clauses` before either engine runs,
+  so a negative literal written there raises `ValueError` on both, where Python
+  called the formula refuted and native raised `OverflowError`. Found by the
+  soundness campaign.
+- A clause repeating a literal on `CNF.clauses` is the same clause without the
+  repeat, on both engines and in the Rust `Checker::new`. It used to fail closed.
+- `CNF(1 << 32)` gets one answer: the native engine is now given the variables the
+  clauses use, as the Python checker sizes itself, rather than `nvars`. That also
+  makes the Rust docs' claim about `dratify`'s sizing true. Literals that `Lit`
+  cannot hold raise `ValueError` rather than `OverflowError`.
+
 ### Changed
 
 - Tokens are what a DIMACS reader takes them to be, in both parsers: separated by

@@ -495,7 +495,8 @@ class DRATChecker:
     ``reached_empty=True`` without the proof being read at all.
     """
 
-    def __init__(self, formula: CNF, check_rat: bool = True, apply_deletions: bool = True):
+    def __init__(self, formula: CNF, check_rat: bool = True,
+                 apply_deletions: bool = True, *, _used: int | None = None):
         self.formula = formula
         self.check_rat = check_rat
         self.apply_deletions = apply_deletions
@@ -503,7 +504,8 @@ class DRATChecker:
         # a header may declare far more than a formula mentions, and both
         # arrays grow on demand (`_grow`) for anything a later clause or proof
         # step introduces. A one-line `p cnf 1000000 0` therefore costs nothing.
-        used = max(((l >> 1) + 1 for c in formula.clauses for l in c), default=0)
+        # `check_proof` has already validated the formula, and passes `_used`.
+        used = _validate_clauses(formula) if _used is None else _used
         self.prop = _Prop(used)
         # clause key -> list of live handles, for deletion lookup
         self._index: dict[tuple[int, ...], list[int]] = {}
@@ -514,7 +516,9 @@ class DRATChecker:
             if not c:
                 # the input already contains the empty clause: nothing to prove
                 self._root_conflict = True
-            self._insert(list(c))
+            # A clause is a set. `CNF.add` drops repeats, but `clauses` can be
+            # written directly, and `(x x)` read as two literals is never unit.
+            self._insert(list(dict.fromkeys(c)))
         self._root_conflict = self._root_conflict or self._propagate_root()
 
     # -- clause bookkeeping -------------------------------------------------
@@ -636,6 +640,17 @@ class DRATChecker:
     # -- driver -------------------------------------------------------------
 
     def check_step(self, kind: str, lits: Sequence[int]) -> bool:
+        """Check one step, after refusing anything that is not a step.
+
+        Python reads a negative index from the end of an array, so an unchecked
+        literal is not an error here, it is a wrong answer.
+        """
+        _validate_step(self.result.steps + 1, kind, lits, self.formula.nvars,
+                       _MAX_VARS)
+        return self._step(kind, lits)
+
+    def _step(self, kind: str, lits: Sequence[int]) -> bool:
+        """`check_step` for a step that has already been validated."""
         r = self.result
         r.steps += 1
         # A clause is a set: `1 1 0` is the clause (1). Everything below
@@ -720,6 +735,9 @@ class DRATChecker:
             self._root_conflict = True
 
     def check(self, steps: Iterable[tuple[str, Sequence[int]]]) -> CheckResult:
+        return self._replay(steps, self.check_step)
+
+    def _replay(self, steps, step) -> CheckResult:
         r = self.result
         if self._root_conflict:
             r.ok = True
@@ -727,7 +745,7 @@ class DRATChecker:
             r.reason = "input formula is refuted by unit propagation alone"
             return r
         for kind, lits in steps:
-            if not self.check_step(kind, lits):
+            if not step(kind, lits):
                 r.ok = False
                 return r
             if r.reached_empty:
@@ -741,6 +759,53 @@ class DRATChecker:
                 "every step verified, but the proof never derives the empty clause"
             )
         return r
+
+
+#: Rust's `Lit` is a u32 holding ``2v + 1``, so this is the most variables any
+#: engine can name. Past it the native binding raises a bare OverflowError.
+_MAX_VARS = 1 << 31
+
+
+def _validate_clauses(formula: CNF) -> int:
+    """Refuse clauses the checkers cannot interpret; return the variables used.
+
+    `CNF.add` validates what comes through it, but `clauses` is a public list.
+    A negative literal written there got a refutation of a satisfiable formula
+    out of the Python checker and an OverflowError out of the native one.
+    """
+    used = 0
+    for i, clause in enumerate(formula.clauses, 1):
+        for lit in clause:
+            if not isinstance(lit, int) or isinstance(lit, bool) or lit < 0:
+                raise ValueError(
+                    f"formula clause {i}: {lit!r} is not an internal literal. "
+                    f"Internal literals are non-negative integers; use "
+                    f"lits.from_dimacs or CNF.add_dimacs for signed DIMACS input.")
+            var = (lit >> 1) + 1
+            if var > used:
+                used = var
+    if used > _MAX_VARS:
+        raise ValueError(
+            f"the formula names variable {used}; at most {_MAX_VARS} can be held")
+    return used
+
+
+def _validate_step(i: int, kind, lits, nvars: int, limit: int) -> None:
+    """One step, numbered ``i``, with literals naming at most ``limit`` variables."""
+    if kind not in ("a", "d"):
+        raise ValueError(
+            f"proof step {i}: kind must be 'a' or 'd', got {kind!r}")
+    for lit in lits:
+        if not isinstance(lit, int) or isinstance(lit, bool) or lit < 0:
+            raise ValueError(
+                f"proof step {i}: {lit!r} is not an internal literal. "
+                f"Internal literals are non-negative integers; use "
+                f"lits.from_dimacs for signed DIMACS input.")
+        if (lit >> 1) + 1 > limit:
+            raise ValueError(
+                f"proof step {i}: literal {to_dimacs(lit)} names variable "
+                f"{(lit >> 1) + 1}, but a {nvars}-variable formula "
+                f"and this proof can account for at most {limit}")
 
 
 def _validate_steps(formula: CNF, steps: list, text_len: int) -> None:
@@ -771,22 +836,9 @@ def _validate_steps(formula: CNF, steps: list, text_len: int) -> None:
             raise ValueError(
                 f"a proof step must be (kind, literals); got {step!r}")
         occurrences += len(step[1])
-    limit = formula.nvars + max(occurrences, text_len)
+    limit = min(formula.nvars + max(occurrences, text_len), _MAX_VARS)
     for i, (kind, lits) in enumerate(steps, 1):
-        if kind not in ("a", "d"):
-            raise ValueError(
-                f"proof step {i}: kind must be 'a' or 'd', got {kind!r}")
-        for lit in lits:
-            if not isinstance(lit, int) or isinstance(lit, bool) or lit < 0:
-                raise ValueError(
-                    f"proof step {i}: {lit!r} is not an internal literal. "
-                    f"Internal literals are non-negative integers; use "
-                    f"lits.from_dimacs for signed DIMACS input.")
-            if (lit >> 1) + 1 > limit:
-                raise ValueError(
-                    f"proof step {i}: literal {to_dimacs(lit)} names variable "
-                    f"{(lit >> 1) + 1}, but a {formula.nvars}-variable formula "
-                    f"and this proof can account for at most {limit}")
+        _validate_step(i, kind, lits, formula.nvars, limit)
 
 
 def check_proof(
@@ -817,12 +869,13 @@ def check_proof(
     else:
         steps = proof
     steps = list(steps)
+    used = _validate_clauses(formula)
     _validate_steps(formula, steps, len(proof) if isinstance(proof, str) else 0)
 
     if engine not in ("auto", "native", "python"):
         raise ValueError(f"unknown checker engine {engine!r}")
     if engine in ("auto", "native"):
-        native = _native_check(formula, steps, check_rat, apply_deletions)
+        native = _native_check(formula, steps, check_rat, apply_deletions, used)
         if native is not None:
             return native
         if engine == "native":
@@ -830,9 +883,9 @@ def check_proof(
 
             raise RuntimeError(_n.BUILD_HINT)
 
-    return DRATChecker(formula, check_rat=check_rat, apply_deletions=apply_deletions).check(
-        steps
-    )
+    checker = DRATChecker(formula, check_rat=check_rat,
+                          apply_deletions=apply_deletions, _used=used)
+    return checker._replay(steps, checker._step)
 
 
 #: A native checker registered by another package, or None.
@@ -892,16 +945,24 @@ _NATIVE_FIELDS = ("ok", "reason", "steps", "rup_steps", "rat_steps",
                   "failed_step", "reached_empty")
 
 
-def _native_check(formula: CNF, steps, check_rat: bool, apply_deletions: bool):
-    """Run the native checker, or return None when it is unavailable."""
+def _native_check(formula: CNF, steps, check_rat: bool, apply_deletions: bool,
+                  used: int | None = None):
+    """Run the native checker, or return None when it is unavailable.
+
+    It is given the variables the clauses use and not `formula.nvars`, as the
+    Python checker sizes itself: it grows for a step's literals, and a count on a
+    `CNF` is free to be larger than a u32.
+    """
     native = _native_module()
     if native is None:
         return None
+    if used is None:
+        used = _validate_clauses(formula)
 
     packed = [(kind == "d", list(lits)) for kind, lits in steps]
     try:
         raw = native.check_proof(
-            formula.nvars, [list(c) for c in formula.clauses], packed,
+            used, [list(c) for c in formula.clauses], packed,
             check_rat, apply_deletions)
     except TypeError as e:
         raise TypeError(

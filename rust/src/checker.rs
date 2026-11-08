@@ -298,7 +298,8 @@ impl Checker {
                 // the input already contains the empty clause
                 c.root_conflict = true;
             }
-            c.insert(cl.clone());
+            // a clause is a set: `(x x)` read as two literals is never unit
+            c.insert(distinct(cl).into_owned());
         }
         c.root_conflict = c.root_conflict || c.propagate_root();
         c
@@ -656,6 +657,12 @@ mod tests {
         let r = Checker::new(1, &[vec![0], vec![1]], true, true).check(&[]);
         assert!(r.ok);
         assert!(r.reason.contains("unit propagation"));
+    }
+
+    #[test]
+    fn a_repeat_in_the_input_is_the_same_clause() {
+        let r = Checker::new(1, &[vec![0, 0], vec![1, 1]], true, true).check(&[]);
+        assert!(r.ok, "{}", r.reason);
     }
 
     #[test]
