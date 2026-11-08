@@ -38,6 +38,8 @@ crate. The two are released together and are meant to be a matching pair; from
 
 ### Changed
 
+- A second `p cnf` line raises `ValueError`, in strict and lenient mode alike. It
+  used to replace the first, which is what let a hidden clause past `strict=True`.
 - CR-only line endings raise `ValueError`, as does a `\r` between tokens. They were
   read as line breaks, which nothing else that reads these files agrees on.
 - `CheckResult.report()` no longer calls every ignored deletion a unit deletion.

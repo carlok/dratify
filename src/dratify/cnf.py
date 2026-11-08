@@ -300,7 +300,8 @@ def parse_dimacs(text: str, strict: bool = False) -> CNF:
     Tolerates the real-world deviations that appear in benchmark archives:
     clauses split across lines, a missing or wrong header, ``%`` / trailing
     ``0`` terminators from SATLIB files, and blank lines.  With ``strict=True``
-    a header mismatch raises instead of being repaired.
+    a header mismatch raises instead of being repaired.  A second header raises
+    either way.
 
     A line ends at a newline, with CRLF accepted; anything else inside a comment
     stays in the comment.  Pass text that kept its line endings:
@@ -309,6 +310,7 @@ def parse_dimacs(text: str, strict: bool = False) -> CNF:
     f = CNF()
     declared_vars = declared_clauses = None
     pending: list[int] = []
+    header_line = 0
     tautologies = 0  # clauses read but dropped by CNF.add
     for lineno, raw in enumerate(_lines(text), 1):
         line = raw.strip(_LINE_SPACE)
@@ -322,6 +324,14 @@ def parse_dimacs(text: str, strict: bool = False) -> CNF:
         if head == "%":
             break  # SATLIB terminator
         if head == "p":
+            # A second header used to replace the first, so the count `strict`
+            # compared against was whichever came last, and a clause could be
+            # paid for by a header further down.
+            if header_line:
+                raise ValueError(
+                    f"line {lineno}: second header {line!r}; the first is on "
+                    f"line {header_line}")
+            header_line = lineno
             parts = line.split()
             if len(parts) < 4 or parts[1] != "cnf":
                 raise ValueError(f"line {lineno}: malformed header {line!r}")
