@@ -38,16 +38,23 @@ overwhelming majority of lines and costs one propagation.
 
 Deletion
 --------
-Deletion lines are honoured, with the one universally adopted exception:
-**deletions of unit clauses are ignored**.  A unit that has already been
-propagated into the checker's root assignment cannot be cleanly retracted
-without a full restart of propagation, and every mainstream checker
-(drat-trim included) skips them.  Ignoring a deletion is always sound for an
-UNSAT certificate -- it only leaves the checker with *more* clauses than the
-solver had, which can never turn an invalid step into a valid one... with the
-caveat that it also cannot turn a valid one invalid, since RUP is monotone in
-the formula.  Monotonicity is what makes ignoring deletions safe; RAT is *not*
-monotone, so a RAT step is checked against exactly the clauses present.
+Deletion lines are honoured, with one exception: **a deletion is ignored when
+the clause, as a set, is unit under the root assignment** -- exactly one literal
+true and all the others false.  Clauses of at most one literal are ignored as
+well.  Every clause that propagated a root literal has that shape for as long as
+the root assignment stands, so this keeps every reason clause, and every root
+literal stays supported by a live clause.  Testing only the length was not
+enough: a reason of two or more literals was erased while the literal it implied
+stayed true, and a satisfiable formula could then be refuted through a RAT step
+that no longer saw the clause.  tests/test_deleted_reasons.py has the proof.
+
+This is drat-trim's operational reading of deletion (Rebola-Pardo and Biere,
+2018), approximated by the root-unit test: a clause that merely looks like a
+reason is kept along with the real ones.  Ignoring a deletion is always sound for
+an UNSAT certificate, since it only leaves the checker with *more* clauses to
+satisfy.  An ignored clause stays in place for RUP and RAT alike, so RAT, which
+is *not* monotone, sees the clauses present minus the deletions that were
+applied, and `ignored_deletions` counts the ones that were not.
 
 Formats
 -------
@@ -458,7 +465,7 @@ class CheckResult:
             f"c   by RAT            : {self.rat_steps} "
             f"({self.resolvents_checked} resolvents checked)",
             f"c deletions applied   : {self.deletions} "
-            f"({self.ignored_deletions} unit deletions ignored)",
+            f"({self.ignored_deletions} ignored: unit at the root, or absent)",
         ]
         if not self.ok and self.failed_clause is not None:
             body = " ".join(str(to_dimacs(l)) for l in self.failed_clause)
@@ -566,6 +573,26 @@ class DRATChecker:
         prop.backtrack(mark)
         return conflict
 
+    def _unit_at_root(self, lits: Sequence[int]) -> bool:
+        """Exactly one literal true at the root and all the others false.
+
+        Every reason clause looks like this, so a deletion that passes this
+        test is ignored: the root assignment is never undone, and erasing the
+        clause would leave a root literal resting on nothing. Not asked once
+        the root has conflicted. Propagation stopped part way there, at a point
+        that depends on watch order, so the answer would too, and by then
+        nothing a deletion does can matter.
+        """
+        val = self.prop.val
+        true = 0
+        for l in lits:
+            v = val[l]
+            if v == U:
+                return False
+            if v == T:
+                true += 1
+        return true == 1
+
     def _is_rat(self, lits: Sequence[int]) -> bool:
         """RAT on the first literal, the pivot convention DRAT mandates."""
         if not lits:
@@ -604,8 +631,8 @@ class DRATChecker:
         # A clause is a set: `1 1 0` is the clause (1). Everything below
         # counted occurrences, so a repeated literal made a unit lemma look
         # like two free literals -- it never became unit at the root, and a
-        # valid proof was rejected -- and `d 1 1 0` slipped past the rule that
-        # unit deletions are ignored. Removing repeats here covers RUP, RAT,
+        # valid proof was rejected -- and `d 1 1 0` slipped past the length test
+        # for deletions. Removing repeats here covers RUP, RAT,
         # storage and deletion at once; keeping the first occurrence keeps the
         # RAT pivot.
         if len(set(lits)) != len(lits):
@@ -620,7 +647,8 @@ class DRATChecker:
                 r.ignored_deletions += 1
                 return True
             if self.apply_deletions:
-                if self._erase(lits):
+                if (not self._root_conflict and not self._unit_at_root(lits)
+                        and self._erase(lits)):
                     r.deletions += 1
                 else:
                     r.ignored_deletions += 1

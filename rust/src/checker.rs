@@ -383,6 +383,30 @@ impl Checker {
         conflict
     }
 
+    /// Exactly one literal true at the root and all the others false.
+    ///
+    /// Every reason clause looks like this, so a deletion that passes this test
+    /// is ignored: the root assignment is never undone, and erasing the clause
+    /// would leave a root literal resting on nothing. Testing only the length
+    /// let a satisfiable formula be refuted, through a RAT step that no longer
+    /// saw the reason. This is drat-trim's operational reading of deletion
+    /// (Rebola-Pardo and Biere, 2018), approximated by the root-unit test, and
+    /// ignoring a deletion is always sound: it only leaves more clauses to
+    /// satisfy. Not asked once the root has conflicted. Propagation stopped
+    /// part way there, at a point that depends on watch order, so the answer
+    /// would too, and by then nothing a deletion does can matter.
+    fn unit_at_root(&self, lits: &[Lit]) -> bool {
+        let mut true_lits = 0;
+        for &l in lits {
+            match self.prop.val[l as usize] {
+                U => return false,
+                T => true_lits += 1,
+                _ => {}
+            }
+        }
+        true_lits == 1
+    }
+
     /// RAT on the first literal, the pivot convention DRAT mandates.
     fn is_rat(&mut self, lits: &[Lit]) -> bool {
         if lits.is_empty() {
@@ -429,8 +453,8 @@ impl Checker {
         // A clause is a set: `1 1 0` is the clause (1). Everything below
         // counted occurrences, so a repeated literal made a unit lemma look
         // like two free literals -- it never became unit at the root, and a
-        // valid proof was rejected -- and `d 1 1 0` slipped past the rule that
-        // unit deletions are ignored. Removing repeats here covers RUP, RAT,
+        // valid proof was rejected -- and `d 1 1 0` slipped past the length test
+        // for deletions. Removing repeats here covers RUP, RAT,
         // storage and deletion at once; keeping the first occurrence keeps the
         // RAT pivot. The Python checker does the same in the same place.
         let lits = distinct(lits);
@@ -442,14 +466,13 @@ impl Checker {
         }
         if is_deletion {
             if lits.len() <= 1 {
-                // Deleting a unit already propagated into the root assignment
-                // cannot be cleanly retracted, and every mainstream checker
-                // skips it. Safe because RUP is monotone in the formula.
+                // A clause of at most one literal is never deleted. See
+                // `unit_at_root` for the longer ones.
                 self.result.ignored_deletions += 1;
                 return true;
             }
             if self.apply_deletions {
-                if self.erase(lits) {
+                if !self.root_conflict && !self.unit_at_root(lits) && self.erase(lits) {
                     self.result.deletions += 1;
                 } else {
                     self.result.ignored_deletions += 1;
@@ -688,6 +711,31 @@ mod tests {
             let r = Checker::new(2, &f, true, true).check(&[(true, del.clone())]);
             assert_eq!((r.deletions, r.ignored_deletions), (0, 1), "{del:?}");
         }
+    }
+
+    /// (1) (-1 2), satisfied by making both true. `d -1 2` used to erase the
+    /// reason for 2 and leave 2 true, so (-2) passed as vacuously RAT, was found
+    /// false at the root, and the empty clause passed on the conflict.
+    #[test]
+    fn a_reason_clause_is_not_deleted() {
+        let f: Vec<Vec<Lit>> = vec![vec![d(1)], vec![d(-1), d(2)]];
+        let steps = vec![
+            (true, vec![d(-1), d(2)]),
+            (false, vec![d(-2)]),
+            (false, vec![]),
+        ];
+        let r = Checker::new(2, &f, true, true).check(&steps);
+        assert!(!r.ok, "this formula is satisfiable");
+        assert_eq!(r.failed_step, 2);
+        assert_eq!((r.deletions, r.ignored_deletions), (0, 1));
+    }
+
+    #[test]
+    fn only_a_clause_unit_at_the_root_is_kept() {
+        // 1 is true and 2 unassigned, so (1 2) is not unit at the root
+        let f: Vec<Vec<Lit>> = vec![vec![d(1)], vec![d(1), d(2)]];
+        let r = Checker::new(2, &f, true, true).check(&[(true, vec![d(1), d(2)])]);
+        assert_eq!((r.deletions, r.ignored_deletions), (1, 0));
     }
 
     #[test]

@@ -68,6 +68,16 @@ This is not a nuance. `drat-trim` checks only the lemmas its refutation needs
 still reports VERIFIED, while this checker rejects. Run `python bench/repro.py`
 to see it happen.
 
+## A deletion is not always applied
+
+A deletion is ignored when the clause, as a set, is unit under the root
+assignment: exactly one literal true and all the others false. Clauses of at
+most one literal are ignored too. Testing the length alone is the mistake that
+got `ok=True` on a satisfiable formula: `(1) (-1 2)` with `d -1 2 0`, `-2 0`, `0`
+erased the reason for 2 and left 2 true. An ignored clause stays in place for RUP
+and RAT alike and counts in `ignored_deletions`, as does a clause that was not
+there to delete.
+
 ## This checks proofs; it does not solve
 
 If the task is to *find* a satisfying assignment, this is the wrong package.

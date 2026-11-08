@@ -105,7 +105,8 @@ class TestDeletion(unittest.TestCase):
 
         Solvers log deletions of units they have already used to simplify at
         the root. Honouring those would invalidate propagations the solver
-        legitimately made, so checkers ignore them -- drat-trim does the same.
+        legitimately made, so checkers ignore them -- drat-trim does the same,
+        and so does this for any clause unit at the root, whatever its length.
         `ignored_deletions` counts them rather than hiding the decision.
         """
         f = parse_dimacs(self.SQUARE)
@@ -116,15 +117,19 @@ class TestDeletion(unittest.TestCase):
         self.assertEqual(r.deletions, 0, "it was ignored, not applied")
 
     def test_longer_deletions_are_applied_and_counted(self):
+        # Before the conflict, and with no literal assigned. `(2)` first used to
+        # be the setup here, but that refutes the square at the root, and past
+        # that point deletions are ignored: see tests/test_deleted_reasons.py.
         f = parse_dimacs(self.SQUARE)
-        steps = [("a", lits(2)), ("d", lits(1, -2)), ("a", [])]
+        steps = [("d", lits(1, -2)), ("a", lits(2)), ("a", [])]
         applied = DRATChecker(f, apply_deletions=True).check(steps)
         ignored = DRATChecker(parse_dimacs(self.SQUARE),
                               apply_deletions=False).check(steps)
         self.assertEqual(applied.deletions, 1)
         self.assertEqual(ignored.deletions, 0)
-        self.assertTrue(applied.ok and ignored.ok,
-                        "this proof happens to survive either way")
+        self.assertEqual(applied.failed_step, 3,
+                         "the empty clause needed it, so the deletion took")
+        self.assertTrue(ignored.ok)
 
     def test_deleting_a_clause_that_was_never_there(self):
         f = parse_dimacs("p cnf 2 1\n1 2 0\n")
