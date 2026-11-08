@@ -266,6 +266,10 @@ was aimed; it runs in the suite and in the weekly fuzzer.
 ## Honest limitations
 
 - Forward checking only. Backward checking would close the large-proof gap.
+- A proof may name a variable up to 2^20 past the formula's count, or further if
+  it has that many literal occurrences. Past that `check_proof` raises `ValueError`,
+  so one line cannot ask for 10^11 variables. Valid proofs numbering fresh variables
+  above that are refused.
 - Lines end at `\n`, with one optional `\r` before it. CR-only files raise
   `ValueError`, and so does a `\r` between tokens; a form feed or any other
   character in a comment stays in the comment. `parse_dimacs_file` reads the bytes

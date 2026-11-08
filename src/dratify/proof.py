@@ -76,7 +76,7 @@ import io
 import os
 from typing import Iterable, Sequence
 
-from .cnf import CNF, _LINE_SPACE, _int, _lines, _refuse_stray_cr, _tokens
+from .cnf import CNF, HEADER_VARS_FLOOR, _LINE_SPACE, _int, _lines, _refuse_stray_cr, _tokens
 from .lits import F, T, U, from_dimacs, to_dimacs
 
 __all__ = [
@@ -511,6 +511,7 @@ class DRATChecker:
         self._index: dict[tuple[int, ...], list[int]] = {}
         self._occ: list[list[int]] = [[] for _ in range(2 * used)]
         self.result = CheckResult()
+        self._mentioned = 0     # literal occurrences seen by `check_step`
         self._root_conflict = False
         for c in formula.clauses:
             if not c:
@@ -645,8 +646,10 @@ class DRATChecker:
         Python reads a negative index from the end of an array, so an unchecked
         literal is not an error here, it is a wrong answer.
         """
-        _validate_step(self.result.steps + 1, kind, lits, self.formula.nvars,
-                       _MAX_VARS)
+        self._mentioned += len(lits)
+        nvars = self.formula.nvars
+        _validate_step(self.result.steps + 1, kind, lits, nvars,
+                       _literal_limit(nvars, self._mentioned))
         return self._step(kind, lits)
 
     def _step(self, kind: str, lits: Sequence[int]) -> bool:
@@ -791,6 +794,23 @@ def _validate_clauses(formula: CNF) -> int:
     return used
 
 
+def _literal_limit(nvars: int, occurrences: int) -> int:
+    """How many variables a proof of a formula may name.
+
+    This guards against a literal sizing the arrays: one short line could ask for
+    10^11 variables. It is not a claim about validity. Numbering is free, so a
+    fresh variable may leave any gap, and bounding by what a proof mentions refused
+    `50 0` on a two-variable formula.
+
+    So: everything in the formula, and past that `HEADER_VARS_FLOOR` more, the
+    amount `parse_dimacs` already accepts from any file on the same reasoning. A
+    proof with more literal occurrences than that may go as far as it has
+    occurrences, which is what a long extended-resolution proof needs. Only the
+    steps count: the text's length used to, so a comment could decide it.
+    """
+    return min(nvars + max(occurrences, HEADER_VARS_FLOOR), _MAX_VARS)
+
+
 def _validate_step(i: int, kind, lits, nvars: int, limit: int) -> None:
     """One step, numbered ``i``, with literals naming at most ``limit`` variables."""
     if kind not in ("a", "d"):
@@ -809,7 +829,7 @@ def _validate_step(i: int, kind, lits, nvars: int, limit: int) -> None:
                 f"and this proof can account for at most {limit}")
 
 
-def _validate_steps(formula: CNF, steps: list, text_len: int) -> None:
+def _validate_steps(formula: CNF, steps: list) -> None:
     """Refuse steps the checkers cannot interpret safely, before either runs.
 
     Two holes, both on the paths that skip the text parser (a list of steps,
@@ -823,13 +843,8 @@ def _validate_steps(formula: CNF, steps: list, text_len: int) -> None:
       mistake AGENTS.md calls the most common.
     * **A huge literal sized the arrays.** The text path was bounded, wrongly
       (by the proof's length, which refused valid short proofs); lists were
-      not bounded at all, so one literal could ask for 10^11 variables.
-
-    The bound: every formula variable is allowed, and beyond that a proof can
-    only introduce variables it mentions, so the largest index is at most the
-    formula's count plus the number of literal occurrences -- or the text's
-    length, which is never smaller and keeps every proof the old text bound
-    accepted.
+      not bounded at all, so one literal could ask for 10^11 variables. See
+      `_literal_limit`.
     """
     occurrences = 0
     for step in steps:
@@ -837,7 +852,7 @@ def _validate_steps(formula: CNF, steps: list, text_len: int) -> None:
             raise ValueError(
                 f"a proof step must be (kind, literals); got {step!r}")
         occurrences += len(step[1])
-    limit = min(formula.nvars + max(occurrences, text_len), _MAX_VARS)
+    limit = _literal_limit(formula.nvars, occurrences)
     for i, (kind, lits) in enumerate(steps, 1):
         _validate_step(i, kind, lits, formula.nvars, limit)
 
@@ -871,7 +886,7 @@ def check_proof(
         steps = proof
     steps = list(steps)
     used = _validate_clauses(formula)
-    _validate_steps(formula, steps, len(proof) if isinstance(proof, str) else 0)
+    _validate_steps(formula, steps)
 
     if engine not in ("auto", "native", "python"):
         raise ValueError(f"unknown checker engine {engine!r}")
