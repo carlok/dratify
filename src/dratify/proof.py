@@ -521,6 +521,7 @@ class DRATChecker:
             # written directly, and `(x x)` read as two literals is never unit.
             self._insert(list(dict.fromkeys(c)))
         self._root_conflict = self._root_conflict or self._propagate_root()
+        self._input_refuted = self._root_conflict
 
     # -- clause bookkeeping -------------------------------------------------
 
@@ -742,18 +743,29 @@ class DRATChecker:
         return self._replay(steps, self.check_step)
 
     def _replay(self, steps, step) -> CheckResult:
+        """Read ``steps`` and conclude, on a checker that may already be in use.
+
+        This tested `_root_conflict` on entry, which a verified lemma also sets,
+        so a second call claimed the input was refuted and reported an empty
+        clause nobody derived. Only the input being refuted skips the proof, and
+        a proof that is already over, one way or the other, is not read further.
+        """
         r = self.result
-        if self._root_conflict:
+        if self._input_refuted:
             r.ok = True
             r.reached_empty = True
             r.reason = "input formula is refuted by unit propagation alone"
             return r
-        for kind, lits in steps:
-            if not step(kind, lits):
-                r.ok = False
-                return r
-            if r.reached_empty:
-                break
+        if r.failed_step != -1:
+            r.ok = False
+            return r
+        if not r.reached_empty:
+            for kind, lits in steps:
+                if not step(kind, lits):
+                    r.ok = False
+                    return r
+                if r.reached_empty:
+                    break
         if r.reached_empty:
             r.ok = True
             r.reason = "empty clause derived and every step verified"

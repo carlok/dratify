@@ -68,6 +68,14 @@ crate. The two are released together and are meant to be a matching pair; from
   more than 2^20 past the formula with fewer occurrences than that, now raises.
   Found by the soundness campaign.
 
+- `check` on a checker already in use reported things that had not happened: the
+  square with the lemma `(1)` and no empty clause got `ok=True`, `reached_empty=True`
+  and "input formula is refuted by unit propagation alone", because `check` read a
+  conflict from a verified lemma as the input's. Calling `check` after a rejected
+  step overwrote its reason with "every step verified". Only the input being refuted
+  now skips the proof, a second piece of a proof is read, and a proof that is over is
+  not read further, on both checkers. Found by the soundness campaign.
+
 ### Changed
 
 - Tokens are what a DIMACS reader takes them to be, in both parsers: separated by

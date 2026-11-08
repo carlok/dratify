@@ -73,6 +73,66 @@ class TestTheClassValidatesSteps(unittest.TestCase):
         self.assertTrue(c.check_step("a", (10,)))
 
 
+class TestAUsedChecker(unittest.TestCase):
+    """`check` once assumed a root conflict could only have come from the input."""
+
+    SQUARE = "p cnf 2 4\n1 2 0\n1 -2 0\n-1 2 0\n-1 -2 0\n"
+
+    def setUp(self):
+        self.f = parse_dimacs(self.SQUARE)
+
+    def fields(self, r):
+        return (r.ok, r.reached_empty, r.reason, r.steps, r.rup_steps,
+                r.failed_step)
+
+    def test_no_empty_clause_is_not_reached_empty_however_it_is_driven(self):
+        whole = DRATChecker(self.f).check([("a", (0,))])
+        self.assertFalse(whole.reached_empty)
+        c = DRATChecker(self.f)
+        self.assertTrue(c.check_step("a", (0,)))
+        self.assertEqual(self.fields(c.check([])), self.fields(whole))
+        c = DRATChecker(self.f)
+        c.check([("a", (0,))])
+        self.assertEqual(self.fields(c.check([])), self.fields(whole))
+
+    def test_a_complete_proof_is_the_same_however_it_is_driven(self):
+        good = [("a", (0,)), ("a", ())]
+        whole = DRATChecker(self.f).check(good)
+        self.assertEqual(whole.reason, "empty clause derived and every step verified")
+        c = DRATChecker(self.f)
+        for step in good:
+            c.check_step(*step)
+        self.assertEqual(self.fields(c.check([])), self.fields(whole))
+
+    def test_a_proof_in_two_pieces_reads_the_second(self):
+        steps = [("a", (0,)), ("a", (2,)), ("a", ())]
+        whole = DRATChecker(self.f).check(steps)
+        c = DRATChecker(self.f)
+        c.check(steps[:1])
+        self.assertEqual(self.fields(c.check(steps[1:])), self.fields(whole))
+
+    def test_nothing_is_read_once_it_is_over(self):
+        c = DRATChecker(self.f)
+        r = c.check([("a", (0,)), ("a", ())])
+        steps = r.steps
+        self.assertEqual(c.check([("a", (2,))]).steps, steps)
+
+    def test_a_rejected_step_keeps_its_reason(self):
+        g = parse_dimacs("p cnf 2 1\n-1 2 0\n")
+        whole = DRATChecker(g, check_rat=False).check([("a", (0, 3))])
+        c = DRATChecker(g, check_rat=False)
+        self.assertFalse(c.check_step("a", (0, 3)))
+        self.assertEqual(self.fields(c.check([])), self.fields(whole))
+        self.assertEqual(self.fields(c.check([("a", ())])), self.fields(whole))
+
+    def test_an_input_refuted_by_propagation_says_so_every_time(self):
+        c = DRATChecker(parse_dimacs("p cnf 1 2\n1 0\n-1 0\n"))
+        for _ in range(2):
+            r = c.check([])
+            self.assertTrue(r.ok)
+            self.assertIn("unit propagation alone", r.reason)
+
+
 class TestTheClassValidatesTheFormula(unittest.TestCase):
     def test_a_negative_literal_on_the_clauses(self):
         f = CNF(3)
