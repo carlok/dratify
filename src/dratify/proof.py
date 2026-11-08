@@ -647,12 +647,14 @@ class DRATChecker:
         Python reads a negative index from the end of an array, so an unchecked
         literal is not an error here, it is a wrong answer.
         """
+        self._validate_next(self.result.steps + 1, kind, lits)
+        return self._step(kind, lits)
+
+    def _validate_next(self, i: int, kind, lits) -> None:
         _validate_shape((kind, lits))
         self._mentioned += len(lits)
         nvars = self.formula.nvars
-        _validate_step(self.result.steps + 1, kind, lits, nvars,
-                       _literal_limit(nvars, self._mentioned))
-        return self._step(kind, lits)
+        _validate_step(i, kind, lits, nvars, _literal_limit(nvars, self._mentioned))
 
     def _step(self, kind: str, lits: Sequence[int]) -> bool:
         """`check_step` for a step that has already been validated."""
@@ -741,7 +743,14 @@ class DRATChecker:
             self._root_conflict = True
 
     def check(self, steps: Iterable[tuple[str, Sequence[int]]]) -> CheckResult:
-        return self._replay(map(_validate_shape, steps), self.check_step)
+        shaped = map(_validate_shape, steps)
+        if self._input_refuted:
+            # The proof goes unread, but what `check_proof` would refuse is still
+            # refused here: a malformed proof is not made fine by a formula.
+            for i, (kind, lits) in enumerate(shaped, self.result.steps + 1):
+                self._validate_next(i, kind, lits)
+            shaped = ()
+        return self._replay(shaped, self.check_step)
 
     def _replay(self, steps, step) -> CheckResult:
         """Read ``steps`` and conclude, on a checker that may already be in use.

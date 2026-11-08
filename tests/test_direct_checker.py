@@ -62,6 +62,16 @@ class TestTheClassValidatesSteps(unittest.TestCase):
             with self.subTest(lit=lit), self.assertRaises(ValueError):
                 DRATChecker(parse_dimacs(ONE)).check_step("a", (lit,))
 
+    def test_a_refuted_input_does_not_excuse_a_malformed_proof(self):
+        """`check_proof` validates first, so `check` must say the same thing."""
+        refuted = "p cnf 1 2\n1 0\n-1 0\n"
+        for steps in ([("a", (-1,))], [("x", (0,))], [("a", (1.5,))], [5],
+                      [("a", (2 * 10 ** 11,))]):
+            with self.subTest(steps=steps), self.assertRaises(ValueError):
+                DRATChecker(parse_dimacs(refuted)).check(steps)
+            with self.subTest(steps=steps), self.assertRaises(ValueError):
+                check_proof(parse_dimacs(refuted), steps, engine="python")
+
     def test_literals_need_an_order(self):
         for lits in (frozenset({0, 3}), {0, 3}, 5, None, iter((0, 3))):
             with self.subTest(lits=lits), self.assertRaises(ValueError) as cm:
