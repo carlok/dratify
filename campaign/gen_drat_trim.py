@@ -4,9 +4,11 @@
 
 Two external checkers are supported, and they are never confused in the output:
 
-* ``drat-trim``, when one is on PATH or given by ``--drat-trim PATH``. It reads
-  from its stdout (``s VERIFIED`` / ``s NOT VERIFIED``), never from its exit
-  code, which has its own meanings, and it runs with its ``-t`` time limit.
+* ``drat-trim``, when one is on PATH or given by ``--drat-trim PATH``. Its verdict
+  is read from its stdout (``s VERIFIED``, ``s NOT VERIFIED``, ``s DERIVATION``,
+  ``s TIMEOUT``), never from its exit code: a trivially refuted formula can exit 1
+  and print ``s VERIFIED``, and ``s TIMEOUT`` exits 0. It opens ``argv[1]`` and
+  ``argv[2]`` by position, so every flag goes after the two files.
 * ``rate``, the independent checker on crates.io (``cargo install rate``), when
   one is on PATH or given by ``--rate PATH``. It is not drat-trim. Everything it
   produces is counted under a ``rate_`` key.
@@ -23,6 +25,28 @@ literal, as it is in dratify and in drat-trim's default:
     bwd-skip   -p -d        rate's "drat-trim compatibility"
     ========== ============ ===========================================
 
+drat-trim runs in these modes, every one with ``-t``:
+
+    ========== ========== ===================================================
+    mode       flags      what it is for
+    ========== ========== ===================================================
+    default    -I         backward, judged against dratify
+    forward    -f -I      forward, every lemma up to the first conflict, judged
+    verbose    -I -v      default again, to list the deletions it ignores
+    autodetect (none)     default without -I: a control on its text detection
+    sat        -S -I      answers another question, so it is counted, not judged
+    ========== ========== ===================================================
+
+There is no mode at this commit that honours a unit deletion and still checks a
+refutation. ``-S`` honours them, but it checks deletions and not additions, and
+stops at a written empty clause: ``campaign/findings/drat_trim-9.md``.
+
+A disagreement with drat-trim is a Note only if a changed proof shows the cause:
+``explain_trim`` turns the proof into one both checkers accept, one named change at
+a time, and asks both checkers again. Otherwise it fails the run. ``deletion_rule``
+tests directly whether dratify's root-unit test and drat-trim's reason test can
+give different verdicts.
+
 dratify's documented reading is the oracle's ``operational`` flavour: deletions
 are applied, except that a deletion of a clause unit under the root assignment is
 ignored, and all of them once the root has conflicted. So rate's ``fwd-skip`` should
@@ -37,8 +61,8 @@ What a disagreement can be:
 
 Run from the repository root:
 
-    python -m campaign.gen_drat_trim --rate PATH
-    python -m campaign.gen_drat_trim --self-test --rate PATH
+    python -m campaign.gen_drat_trim --rate PATH --drat-trim PATH
+    python -m campaign.gen_drat_trim --self-test --rate PATH --drat-trim PATH
 """
 
 from __future__ import annotations
@@ -53,6 +77,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from typing import NamedTuple
 from unittest import mock
 
 from campaign import oracle
@@ -70,7 +95,16 @@ RATE_MODES = {
     "bwd-spec": (["-p"], "bwd", "specified"),
     "bwd-skip": (["-p", "-d"], "bwd", "operational"),
 }
+# mode -> flags. drat-trim opens argv[1] and argv[2] by position, so these follow them.
+DRAT_TRIM_MODES = {
+    "default": ["-I"],
+    "forward": ["-f", "-I"],
+    "verbose": ["-I", "-v"],
+    "autodetect": [],
+    "sat": ["-S", "-I"],
+}
 TIMEOUT = 20
+CRASH_RETRIES = 5     # its crash depends on what the heap holds, so a run can be repeated
 CRITICAL_KINDS = {"ok_on_satisfiable", "rup_not_implied", "accepted_not_preserving"}
 BUG_KINDS = {"accepted_unacceptable", "false_rejection", "engine_disagreement",
              "field_mismatch", "verdict_mismatch"}
@@ -296,6 +330,29 @@ def stdout_verdict(stdout):
     return None
 
 
+class Trim(NamedTuple):
+    """One run of drat-trim. ``outcome`` is the verdict its stdout printed, or
+    ``timeout``, ``crash`` (killed by a signal) or ``none`` (it exited without one).
+    ``crashes`` counts the runs it took to get there: see drat_trim-10."""
+
+    outcome: str
+    stdout: str
+    crashes: int = 0
+
+
+TRIM_VERDICTS = {"s VERIFIED": "verified", "s NOT VERIFIED": "not_verified",
+                 "s DERIVATION": "derivation", "s TIMEOUT": "timeout"}
+
+
+def trim_outcome(stdout, returncode):
+    # Universal newlines have already turned its \r prefixes into line breaks.
+    for line in stdout.splitlines():
+        outcome = TRIM_VERDICTS.get(line.strip())
+        if outcome:
+            return outcome
+    return "crash" if returncode < 0 else "none"
+
+
 class External:
     """Runs whichever checkers exist, on one formula and proof at a time."""
 
@@ -304,6 +361,8 @@ class External:
         self.drat_trim = drat_trim
         self.cnf = pathlib.Path(workdir) / "instance.cnf"
         self.proof = pathlib.Path(workdir) / "instance.drat"
+        self.trim_cnf = pathlib.Path(workdir) / "trim.cnf"
+        self.trim_proof = pathlib.Path(workdir) / "trim.drat"
 
     def _run(self, argv, limit):
         try:
@@ -320,18 +379,35 @@ class External:
             for mode, (flags, _, _) in RATE_MODES.items():
                 out[f"rate/{mode}"] = self._run(
                     [self.rate, *flags, str(self.cnf), str(self.proof)], TIMEOUT)
-        if self.drat_trim:
-            # drat-trim's exit code is not a verdict, so only stdout is read
-            out["drat-trim"] = self._run(
-                [self.drat_trim, str(self.cnf), str(self.proof), "-t", str(TIMEOUT)],
-                TIMEOUT + 5)
         return out
+
+    def trim(self, mode, formula, steps):
+        """One drat-trim mode on this formula and proof, which may be a changed one."""
+        self.trim_cnf.write_text(cnf_text(formula))
+        self.trim_proof.write_text(proof_text(steps))
+        argv = [self.drat_trim, str(self.trim_cnf), str(self.trim_proof),
+                *DRAT_TRIM_MODES[mode], "-t", str(TIMEOUT)]
+        for crashes in range(CRASH_RETRIES):
+            try:
+                done = subprocess.run(argv, capture_output=True, text=True, errors="replace",
+                                      timeout=TIMEOUT + 5)   # -f and -S never look at -t
+            except subprocess.TimeoutExpired:
+                return Trim("timeout", "", crashes)
+            outcome = trim_outcome(done.stdout, done.returncode)
+            if outcome != "crash":
+                break
+        else:
+            crashes = CRASH_RETRIES
+        return Trim(outcome, done.stdout, crashes)
+
+    def trims(self, formula, steps):
+        if not self.drat_trim:
+            return {}
+        return {mode: self.trim(mode, formula, steps) for mode in DRAT_TRIM_MODES}
 
 
 def checker_reading(name):
-    """(direction, oracle flavour) for an external checker's name."""
-    if name == "drat-trim":
-        return "bwd", "operational"
+    """(direction, oracle flavour) for one of rate's modes."""
     _, direction, flavour = RATE_MODES[name.split("/")[1]]
     return direction, flavour
 
@@ -419,12 +495,10 @@ def judge_dratify(formula, steps, checker, walk, sat, a):
 
 def judge_external(name, theirs, ours, walks, verdicts, sat, a, counts):
     """Explain one disagreement, or say that it cannot be explained."""
-    tag = "rate_" + name.split("/")[1].replace("-", "_") if name.startswith("rate/") \
-        else "drat_trim"
+    tag = "rate_" + name.split("/")[1].replace("-", "_")
     if theirs is None:
         counts[f"{tag}_no_verdict"] += 1
-        if name.startswith("rate/"):   # drat-trim's timeouts are reported, not judged
-            a.flag("Bug", "external_no_verdict", name)
+        a.flag("Bug", "external_no_verdict", name)
         return
     counts[f"{tag}_run"] += 1
     if theirs and sat:
@@ -475,6 +549,290 @@ def judge_external(name, theirs, ours, walks, verdicts, sat, a, counts):
                f"{'accepts' if reading.accepts_like_external else 'rejects'}")
 
 
+def trim_agrees(outcome, ours):
+    """Does this drat-trim verdict say what dratify's result says?
+
+    ``s DERIVATION`` is forward mode's "every lemma is fine, and this is not a
+    refutation", which is what dratify means by ok=False with no failed step.
+    """
+    if outcome == "verified":
+        return ours["ok"]
+    if outcome == "derivation":
+        return not ours["ok"] and ours["failed_step"] <= 0
+    return not ours["ok"]
+
+
+def repair(formula, steps, checker, backward, want_empty, skip_first=False):
+    """Change a proof dratify rejects until it accepts it, naming each change.
+
+    Returns ``(steps, causes)``, or None when no change here will do. Every change
+    is one drat-trim's own behaviour stands for, read from drat-trim.c:
+
+    * ``other_pivot``: redundancyCheck falls back to every literal of the lemma,
+      where dratify has only the first. The lemma is rewritten with that one first.
+    * ``unused_lemma``: backward checking never looks at a lemma the refutation
+      does not reach. Backward only. The lemma is removed.
+    * ``core_only_rat``: checkRAT skips a candidate not yet marked as used, in
+      backward mode only. The candidates that fail are deleted just before the lemma.
+    * ``implicit_empty``: it stops at the first propagation conflict; dratify asks
+      for the written clause. The clause is appended.
+
+    ``skip_first`` is for a proof forward mode refused: its fallback pivots did not
+    save the lemma, so if backward mode let it through, that is because it never
+    looked.
+    """
+    r = checker.run(formula, steps, "python")
+    if r["failed_step"] <= 0:
+        if r["ok"] or not want_empty:
+            return steps, set()
+        closed = [*steps, ("a", ())]
+        return (closed, {"implicit_empty"}) if checker.run(formula, closed, "python")["ok"] \
+            else None
+    k = r["failed_step"] - 1
+    lemma = steps[k][1]
+    before, after = steps[:k], steps[k + 1:]
+    current = oracle.replay(formula, before, DOCUMENTED_FLAVOUR,
+                            stop_at_unacceptable=False)[1]
+
+    def attempt(changed, cause):
+        out = repair(formula, changed, checker, backward, want_empty, skip_first)
+        return (out[0], out[1] | {cause}) if out else None
+
+    if backward and skip_first:
+        out = attempt([*before, *after], "unused_lemma")
+        if out:
+            return out
+    for lit in dict.fromkeys(lemma[1:]):
+        if lit != lemma[0] and oracle.rat(current, lemma, lit):
+            moved = (lit, *[l for l in lemma if l != lit])
+            out = attempt([*before, ("a", moved), *after], "other_pivot")
+            if out:
+                return out
+    if not backward:
+        return None
+    if not skip_first:
+        out = attempt([*before, *after], "unused_lemma")
+        if out:
+            return out
+    for pivot in dict.fromkeys(lemma):
+        failing = [("d", tuple(c)) for c in current if -pivot in c
+                   and not oracle.rup(current, set(lemma) | (set(c) - {-pivot}))]
+        moved = (pivot, *[l for l in lemma if l != pivot])
+        out = attempt([*before, *failing, ("a", moved), *after], "core_only_rat")
+        if out:
+            return out
+    return None
+
+
+NOTE_OF_CAUSE = {
+    "other_pivot": "note_other_pivot",
+    "unused_lemma": "note_backward_skips_unused",
+    "core_only_rat": "note_core_only_rat",
+    "implicit_empty": "note_implicit_empty_clause",
+}
+
+
+def explain_trim(mode, outcome, formula, steps, ours, checker, external, trims):
+    """The notes that account for one disagreement, each shown by a changed proof."""
+    notes = []
+    # `d 0`: its fscanf(" d  %i ") reads the 0 as the first literal, takes that for
+    # "no literal yet", reads again, and so swallows the next token of the proof.
+    if any(kind == "d" and not lits for kind, lits in steps):
+        clean = [s for s in steps if s != ("d", ())]
+        again = external.trim(mode, formula, clean).outcome
+        ours_clean = checker.run(formula, clean, "python")
+        if again != outcome and ours_clean["ok"] == ours["ok"]:
+            notes.append("note_deletion_of_nothing")
+            if trim_agrees(again, ours_clean):
+                return notes
+        steps, outcome, ours = clean, again, ours_clean
+    if outcome not in ("verified", "derivation") or ours["ok"]:
+        return None                 # nothing below makes drat-trim stricter than dratify
+    out = repair(formula, steps, checker, mode == "default", outcome == "verified",
+                 trims["forward"].outcome == "not_verified")
+    if out is None or external.trim(mode, formula, out[0]).outcome != outcome:
+        return None
+    causes = out[1]
+    if "unused_lemma" in causes and trims["forward"].outcome != "not_verified":
+        return None                 # forward mode must look at the lemma and refuse it
+    return notes + [NOTE_OF_CAUSE[c] for c in sorted(causes)]
+
+
+def settle_crash(mode, run, formula, steps, external, a, counts):
+    """drat_trim-10: at a final empty clause with no conflict behind it, drat-trim reads
+    one int past its clause database, and can crash on what it finds there.
+
+    Without that clause it must not crash, and with a second one after it the read
+    stays inside the database, so it must answer NOT VERIFIED. Anything else fails
+    the run. Returns the run with the answer in it.
+    """
+    tag = f"drat_trim_{mode}"
+    counts[f"{tag}_crashed_at_least_once"] += 1
+    counts[f"{tag}_crashed_every_time"] += run.outcome == "crash"
+    if ("a", ()) in steps and run.outcome in ("crash", "not_verified"):
+        without = [s for s in steps if s != ("a", ())]
+        padded = external.trim(mode, formula, [*steps, ("a", ())])
+        if padded.outcome == "not_verified" and not padded.crashes and not any(
+                external.trim(mode, formula, without).crashes for _ in range(10)):
+            counts[f"{tag}_note_crash_on_unsupported_empty_clause"] += 1
+            a.notes.append("note_crash_on_unsupported_empty_clause")
+            return Trim(padded.outcome, padded.stdout, run.crashes)
+    a.flag("Bug", "drat_trim_crash_unexplained", f"{mode}: {run.crashes} crashes")
+    return run
+
+
+def judge_drat_trim(mode, run, ours, formula, steps, sat, checker, external, trims, a, counts):
+    tag = f"drat_trim_{mode}"
+    counts[f"{tag}_outcome_{run.outcome}"] += 1
+    if mode == "sat":
+        # It checks deletions and skips additions: another question, so never compared.
+        counts[f"{tag}_run"] += 1
+        counts[f"{tag}_crashed_at_least_once"] += run.crashes > 0
+        if run.outcome == "verified":
+            shape = "satisfiable" if sat else "unsatisfiable" if not oracle.propagate(formula)[0] \
+                else "unsatisfiable_by_propagation"
+            counts[f"{tag}_verified_on_{shape}"] += 1
+        return
+    if mode == "default":
+        counts["drat_trim_default_warned_of_a_unit_deletion"] += (
+            "backward mode ignores deletion" in run.stdout)
+        counts["drat_trim_default_warned_of_another_pivot"] += (
+            "RAT check on proof pivot failed" in run.stdout)
+    if mode in ("autodetect", "verbose"):
+        counts[f"{tag}_run"] += 1
+        if run.outcome != trims["default"].outcome:
+            a.flag("Bug", f"drat_trim_{mode}_changes_the_verdict",
+                   f"{run.outcome}, and {trims['default'].outcome} in the default mode")
+        return
+    if run.outcome == "timeout":
+        return                      # counted above, and reported
+    if run.outcome in ("crash", "none"):
+        a.flag("Bug", "drat_trim_no_verdict", f"{mode}: {run.outcome}")
+        return
+    counts[f"{tag}_run"] += 1
+    if run.outcome == "verified" and sat:
+        # No flavour and no backward pass can explain this.
+        a.flag("Bug", "external_accepted_satisfiable", f"drat-trim {mode} said VERIFIED")
+    if trim_agrees(run.outcome, ours):
+        counts[f"{tag}_agree"] += 1
+        return
+    counts[f"{tag}_disagree"] += 1
+    counts[f"{tag}_{'dratify_accepts_it_rejects' if ours['ok'] else 'it_accepts_dratify_rejects'}"] += 1
+    if a.mismatches:
+        notes = ["follows_dratify_mismatch"]     # already a failure
+    else:
+        notes = explain_trim(mode, run.outcome, formula, steps, ours, checker, external, trims)
+    if not notes:
+        a.flag("Bug", "drat_trim_unexplained",
+               f"{mode} says {run.outcome}, dratify ok={ours['ok']} "
+               f"failed_step={ours['failed_step']}")
+        return
+    for note in notes:
+        counts[f"{tag}_{note}"] += 1
+        a.notes.append(note)
+
+
+def trim_lines(stdout, start):
+    """The clauses on the lines of drat-trim -v that begin this way."""
+    found = collections.Counter()
+    for line in stdout.splitlines():
+        if line.strip().startswith(start):
+            printed = line.split("]", 1)[1].split()
+            found[frozenset(int(t) for t in printed[:-1])] += 1
+    return found
+
+
+def reasons_kept_by_trim(stdout):
+    """The clauses drat-trim -v says it kept because they were reasons."""
+    return trim_lines(stdout, "c ignoring deletion instruction")
+
+
+def deletions_it_found_nothing_for(stdout):
+    """Its parser matches a deletion to a copy before it knows the copy is a reason, so
+    a second deletion of a reason it kept finds nothing. No clause goes, as in dratify."""
+    return trim_lines(stdout, "c WARNING: deleted clause on proof line")
+
+
+def with_lookalikes_applied(formula, steps, applied):
+    """dratify's Python engine with the deletions numbered in ``applied`` honoured.
+
+    The numbers count the deletions of two or more literals that reach the root-unit
+    test. This is dratify holding drat-trim's reason test where the two differ.
+    """
+    real = DRATChecker._unit_at_root
+    seen = [0]
+
+    def test(self, lits):
+        seen[0] += 1
+        return real(self, lits) and seen[0] not in applied
+
+    with mock.patch.object(DRATChecker, "_unit_at_root", test):
+        return Dratify.run(formula, steps, "python")
+
+
+def deletion_rule(formula, steps, walk, ours, checker, external, trims, a, counts):
+    """Where dratify's root-unit test and drat-trim's reason test part, does it matter?
+
+    The deletions compared are those before the first conflict, where both stop
+    asking, and before any step dratify rejects, which is exactly where a proof
+    relying on a clause being gone would show. drat-trim does not stop there, so it is
+    asked again on that prefix. On each proof that differs, the deletions the two read
+    differently are put right on either side in turn: drat-trim with them removed from
+    the proof, and dratify with them honoured. A verdict that moves is the deletion
+    rule itself showing, and fails the run.
+    """
+    if not external.drat_trim or walk.input_refuted:
+        return
+    trace = trims["verbose"].stdout if walk.first_bad is None else external.trim(
+        "verbose", formula, steps[:walk.first_bad - 1]).stdout
+    theirs = reasons_kept_by_trim(trace)
+    nothing = deletions_it_found_nothing_for(trace)
+    in_time = [s for s in walk.judged if s.kind == "d" and len(set(s.clause)) >= 2
+               and (walk.refuted_at is None or s.index < walk.refuted_at)]
+    mine = collections.Counter(
+        frozenset(s.clause) for s in in_time if s.present and not s.applied)
+    counts["deletion_rule_proofs_compared"] += 1
+    counts["deletion_rule_kept_by_both"] += sum((mine & theirs).values())
+    only_trim = theirs - mine
+    if only_trim:
+        counts["deletion_rule_kept_only_by_drat_trim"] += sum(only_trim.values())
+        a.flag("Bug", "deletion_kept_only_by_drat_trim", str(list(only_trim)))
+    counts["deletion_rule_repeated_on_a_kept_clause"] += sum(((mine - theirs) & nothing).values())
+    only_mine = mine - theirs - nothing
+    if not only_mine:
+        return
+    counts["deletion_rule_kept_only_by_dratify"] += sum(only_mine.values())
+    counts["deletion_rule_proofs_that_differ"] += 1
+    counts["deletion_rule_differing_proofs_verdicts_agree"] += trim_agrees(
+        trims["default"].outcome, ours)
+    counts["deletion_rule_differing_proofs_dratify_accepts"] += ours["ok"]
+
+    # the last copies stand for the ones it applied: which copy it took does not matter
+    remaining = collections.Counter(only_mine)
+    dropped = set()
+    for s in reversed(in_time):
+        if s.present and not s.applied and remaining[frozenset(s.clause)] > 0:
+            remaining[frozenset(s.clause)] -= 1
+            dropped.add(s.index)
+    without = [s for i, s in enumerate(steps, 1) if i not in dropped]
+    for mode in ("default", "forward"):
+        if external.trim(mode, formula, without).outcome != trims[mode].outcome:
+            a.flag("Bug", "deletion_rule_moved_the_verdict",
+                   f"drat-trim {mode}, without the deletions of {sorted(only_mine, key=sorted)}")
+        else:
+            counts[f"deletion_rule_{mode}_verdict_stays_without_them"] += 1
+    if checker is Dratify:
+        # the root-unit test is asked once per deletion of two or more literals
+        ordinal = {s.index: n for n, s in enumerate(in_time, 1)}
+        honoured = with_lookalikes_applied(formula, steps, {ordinal[i] for i in dropped})
+        if honoured["ok"] != ours["ok"] or honoured["failed_step"] != ours["failed_step"]:
+            a.flag("Bug", "deletion_rule_moved_the_verdict",
+                   f"dratify honouring {sorted(only_mine, key=sorted)}: "
+                   f"ok={honoured['ok']} failed_step={honoured['failed_step']}")
+        else:
+            counts["deletion_rule_dratify_verdict_stays_honouring_them"] += 1
+
+
 def analyse(formula, steps, checker, external, counts):
     a = Analysis()
     sat = oracle.satisfiable(formula)
@@ -483,8 +841,15 @@ def analyse(formula, steps, checker, external, counts):
     verdicts = external.verdicts(formula, steps)
     for name, theirs in verdicts.items():
         judge_external(name, theirs, ours, walks, verdicts, sat, a, counts)
+    trims = external.trims(formula, steps)
+    for mode, run in trims.items():
+        if run.crashes and mode != "sat":
+            trims[mode] = settle_crash(mode, run, formula, steps, external, a, counts)
+    for mode, run in trims.items():
+        judge_drat_trim(mode, run, ours, formula, steps, sat, checker, external, trims, a, counts)
 
     walk = walks[DOCUMENTED_FLAVOUR]
+    deletion_rule(formula, steps, walk, ours, checker, external, trims, a, counts)
     counts["instances"] += 1
     counts["steps_judged"] += len(walk.judged)
     counts["formulas_satisfiable" if sat else "formulas_unsatisfiable"] += 1
@@ -512,6 +877,7 @@ def analyse(formula, steps, checker, external, counts):
         counts[category] += 1
     a.stale = tried.root_shrunk_at is not None
     a.verdicts = verdicts
+    a.trims = trims
     return a
 
 
@@ -587,6 +953,68 @@ def true_literal(formula, clause):
     return next(l for l in clause if l in assigned)
 
 
+def gen_lookalike(rng, pool, counts):
+    """Delete a clause that has a reason's shape but need not be the reason.
+
+    Not one of ``FAMILIES``: it runs after them on its own random stream, so the
+    default run stays the same 1,593 proofs.
+    """
+    formula = chain_formula(rng)
+    conflict, assigned = oracle.propagate(formula)
+    if conflict or len(assigned) < 2:
+        return gen_lookalike(rng, pool, counts)
+    # Half stay satisfiable. The rest carry a core no propagation reaches, so a proof
+    # can be a real refutation with the deletion in it, and acceptance is on the table.
+    tail = []
+    if rng.random() < 0.5:
+        x = max(abs(l) for c in formula for l in c) + 1
+        core = [[x, x + 1], [-x, x + 1], [x, -x - 1], [-x, -x - 1]]
+        formula += core
+        tail = [("a", (x,)), ("a", ())]
+    true_lits = sorted(assigned)
+    t = rng.choice(true_lits)
+    others = rng.sample([l for l in true_lits if l != t], min(rng.randint(1, 2), len(true_lits) - 1))
+    clause = [t, *(-o for o in others)]
+    rng.shuffle(clause)
+    steps = []
+    roll = rng.random()
+    if roll < 0.5:
+        formula.insert(rng.randint(0, len(formula)), clause)
+    elif roll < 0.75:
+        formula.insert(rng.randint(0, len(formula)), list(rng.choice(formula)))
+        clause = rng.choice([c for c in formula if oracle.is_pseudo_unit(formula, c)
+                             and len(set(c)) >= 2] or [clause])
+        steps.append(("d", tuple(clause)))
+    else:
+        steps.append(("a", tuple(clause)))     # RUP: one of its literals is true
+    steps.append(("d", tuple(clause)))
+    if rng.random() < 0.3 and reasons_of(formula):
+        steps.append(("d", tuple(rng.choice(reasons_of(formula)))))
+    fresh = max((abs(l) for c in formula for l in c), default=1) + 1
+    o = rng.choice(others)
+    shape = rng.randrange(7)
+    if shape == 0:
+        steps += [("a", (-t, fresh)), ("a", (-fresh,))]
+    elif shape == 1:
+        steps += [("a", (fresh, -t))]
+    elif shape == 2:
+        steps += [("a", (-t,))]                # the attack on a real reason
+    elif shape == 3:
+        steps += [("a", (o, fresh)), ("a", (-fresh, o))]
+    elif shape == 4:
+        steps += list(dpll_proof(formula) or [])
+    elif shape == 5:
+        steps += [("a", (fresh, t, -o)), ("a", (-t, -fresh)), ("a", (t, o))]
+    else:
+        steps += mutate(rng, formula, dpll_proof(formula) or [("a", ())])
+    return formula, [*steps, *(tail or [("a", ())])]
+
+
+#: real solvers at a size the oracle cannot judge: dratify and drat-trim alone
+LARGE_PHP = [(5, 4), (6, 5), (7, 6)]
+LARGE_RANDOM = (40, 60, 80, 100, 120)
+
+
 class Pool:
     """Solver proofs: real ones to run as they are and to mutate."""
 
@@ -608,6 +1036,7 @@ class Pool:
         proof.unlink(missing_ok=True)
         if done.returncode not in (10, 20):
             raise RuntimeError(f"{solver} exited {done.returncode}: {done.stderr}")
+        self.last_exit = done.returncode
         return steps
 
 
@@ -892,6 +1321,41 @@ def shrink(formula, steps, kind, checker, external):
 # --------------------------------------------------------------------------
 
 
+def large_solver_proofs(seed, external, pool, counts, mismatches, examples):
+    """cadical and kissat past the oracle's limit: both engines, then drat-trim."""
+    rng = random.Random(seed * 1009 + 2)
+    native = native_engine()
+    for solver in pool.solvers:
+        shapes = [php_formula(rng, *size) for size in LARGE_PHP]
+        for n in LARGE_RANDOM:
+            shapes += [random_formula(rng, n, int(n * 4.6), (3,)) for _ in range(3)]
+        for formula in shapes:
+            steps = pool.solve(formula, solver)
+            if pool.last_exit == 10:
+                counts["large_solver_satisfiable_skipped"] += 1
+                continue
+            counts[f"large_solver_proofs_{solver}"] += 1
+            counts["large_solver_steps"] += len(steps)
+            ours = Dratify.run(formula, steps, "python")
+            if native and Dratify.run(formula, steps, "native") != ours:
+                mismatches[("Bug", "engine_disagreement", None)] += 1
+                examples.setdefault(("Bug", "engine_disagreement", None),
+                                    ("large", formula, steps, solver))
+            counts["large_solver_dratify_ok"] += ours["ok"]
+            for mode in ("default", "forward"):
+                outcome = external.trim(mode, formula, steps).outcome
+                counts[f"large_solver_drat_trim_{mode}_{outcome}"] += 1
+            if not ours["ok"]:
+                # a solver's own refutation, which dratify must accept
+                mismatches[("Bug", "large_solver_proof_rejected", None)] += 1
+                examples.setdefault(("Bug", "large_solver_proof_rejected", None),
+                                    ("large", formula, steps, ours["reason"]))
+
+
+#: how many proofs gen_lookalike contributes after the families, when drat-trim runs
+LOOKALIKES = 1000
+
+
 def campaign(seed, total, checker, external, workdir, keep_examples=True):
     counts = collections.Counter()
     pool = Pool(workdir)
@@ -907,11 +1371,27 @@ def campaign(seed, total, checker, external, workdir, keep_examples=True):
                 a.verdicts.get("rate/fwd-spec") is False and not oracle.satisfiable(formula))
             counts["solver_unsat_proofs_rate_fwd_skip_rejects"] += (
                 a.verdicts.get("rate/fwd-skip") is False and not oracle.satisfiable(formula))
+            for mode in ("default", "forward"):
+                run = a.trims.get(mode)
+                counts[f"solver_unsat_proofs_drat_trim_{mode}_rejects"] += bool(
+                    run and run.outcome == "not_verified" and not oracle.satisfiable(formula))
         for severity, kind, detail in a.mismatches:
             label = None
             mismatches[(severity, kind, label)] += 1
             counts[f"mismatch_{kind}"] += 1
             examples.setdefault((severity, kind, label), (family, formula, steps, detail))
+    if external.drat_trim and keep_examples:
+        extra = collections.Counter()
+        rng = random.Random(seed * 1009 + 1)
+        for _ in range(LOOKALIKES):
+            formula, steps = gen_lookalike(rng, pool, extra)
+            a = analyse(formula, steps, checker, external, extra)
+            for severity, kind, detail in a.mismatches:
+                mismatches[(severity, kind, None)] += 1
+                examples.setdefault((severity, kind, None), ("lookalike", formula, steps, detail))
+        counts.update({f"lookalike_{key}": n for key, n in extra.items()})
+        if pool.solvers:
+            large_solver_proofs(seed, external, pool, counts, mismatches, examples)
     return counts, mismatches, examples, pool
 
 
@@ -931,7 +1411,16 @@ def required_categories(external, pool):
                    "rate_bwd_skip_it_accepts_dratify_rejects", "note_backward_skips_unused",
                    "note_implicit_empty_clause"]
     if external.drat_trim:
-        needed += ["drat_trim_run", "drat_trim_agree"]
+        for mode in ("default", "forward"):
+            tag = f"drat_trim_{mode}"
+            needed += [f"{tag}_run", f"{tag}_agree", f"{tag}_disagree",
+                       f"{tag}_it_accepts_dratify_rejects"]
+        needed += ["drat_trim_autodetect_run", "drat_trim_verbose_run", "drat_trim_sat_run",
+                   "note_implicit_empty_clause", "note_backward_skips_unused",
+                   "deletion_rule_proofs_compared",
+                   "deletion_rule_kept_by_both", "lookalike_deletion_rule_proofs_that_differ",
+                   "lookalike_deletion_rule_kept_only_by_dratify"]
+        needed += [f"large_solver_proofs_{s}" for s in pool.solvers]
     return needed
 
 
@@ -961,6 +1450,27 @@ def print_mismatches(mismatches, examples, checker, external):
         print(f"           shrunk: F={tiny_f} proof={tiny_s}")
 
 
+#: A shrunk proof per category of disagreement with drat-trim, pinned by --self-test.
+_TWO_VARS = [[1, 2], [-1, 2], [1, -2], [-1, -2]]
+# (1 2) is RAT on 1 until (-1 7) joins these. The refutation needs it: (3) is RUP only
+# through it.
+_NEEDS_THE_LEMMA = [[-1, 3], [2, 3, 4], [2, 3, -4], [-2, 5], [-2, -5], [-3, 6], [-3, -6]]
+TRIM_EXAMPLES = [
+    ("note_implicit_empty_clause", _TWO_VARS, [("a", (1,))]),
+    ("note_backward_skips_unused", [*_TWO_VARS, [-3, 4]], [("a", (-4,)), ("a", (1,)), ("a", ())]),
+    ("note_other_pivot", [*_TWO_VARS, [-3, 5]], [("a", (3, 4)), ("a", (1,)), ("a", ())]),
+    ("note_core_only_rat", [*_NEEDS_THE_LEMMA, [-1, 7]],
+     [("a", (1, 2)), ("a", (3,)), ("a", ())]),
+    ("note_deletion_of_nothing", _TWO_VARS, [("d", ()), ("a", (1,)), ("a", ())]),
+]
+#: the cases this corner exists for: dratify and drat-trim's default mode refuse them
+TRIM_AGREEMENTS = [
+    ("deleted reason", [[1], [-1, 2]], [("d", (-1, 2)), ("a", (-2,)), ("a", ())]),
+    ("deletion-2", [[1], [-1, 2], [-2, 3]], [("d", (-1, 2)), ("a", (2,))]),
+    ("reason deleted twice", [[-4, 6], [4, 5], [-5]],
+     [("d", (-4, 6)), ("d", (-4, 6)), ("a", (-6,))]),
+]
+
 #: disagreements that are explained, each with a finding file, and the counter
 #: that shows the run reached it
 NOTE_FINDINGS = [
@@ -976,20 +1486,48 @@ NOTE_FINDINGS = [
     ("drat_trim-5", "note_sticky_refutation",
      "once propagation has refuted the clauses, dratify keeps treating them as refuted "
      "after a deletion undoes the conflict; sound, and rate agrees"),
+    ("drat_trim-6", "note_other_pivot",
+     "drat-trim falls back to every literal of a lemma as the RAT pivot, in both modes; "
+     "dratify documents the first literal only"),
+    ("drat_trim-7", "note_core_only_rat",
+     "drat-trim's backward mode skips a RAT candidate not yet marked as used, so it "
+     "accepts a used lemma that is not RAT on the clauses present"),
+    ("drat_trim-10", "note_crash_on_unsupported_empty_clause",
+     "drat-trim reads past its clause database at a final empty clause with no conflict "
+     "behind it, and can segfault; retried, it answers NOT VERIFIED, as dratify does"),
+]
+
+#: Notes the default seed need not reach, so they are listed whatever the counters say.
+ALWAYS_LISTED = [
+    {"id": "drat_trim-8", "severity": "Note",
+     "summary": "drat-trim's parser reads `d 0` and then swallows the next token of the "
+                "proof, so the next lemma can become a deletion; found by hand, pinned by "
+                "--self-test"},
+    {"id": "drat_trim-9", "severity": "Note",
+     "summary": "no drat-trim mode honours a unit deletion and also checks a refutation: "
+                "-S checks deletions and skips additions, so it is counted and not compared"},
+    {"id": "drat_trim-11", "severity": "Note",
+     "summary": "dratify's root-unit test keeps more clauses than drat-trim's reason test, "
+                "and no verdict moved on either side; one README sentence claims otherwise"},
 ]
 
 NOT_CHECKED = [
-    "drat-trim itself: not installed, no package install provides it, and its source "
-    "is on GitHub, outside this campaign's network rule. Its invocation and stdout "
-    "parsing were exercised only against shell stubs in --self-test.",
+    "drat-trim's -p plain mode, -u, -O and its LRAT and core outputs: only -I, -f, -v, -S "
+    "and -t were run. -W was run by hand on the two named cases, not on the corpus",
+    "any drat-trim commit but the one recorded under external_checkers, and any build but "
+    "cc -std=c99 -O2 on macOS arm64: its crash depends on what the heap holds",
+    "drat-trim's binary proof reading: text only, with -I, and without it as a control",
     "rate with no -p flag, where it tries every literal as a pivot",
     "rate's LRAT and GRAT output, and DPR proofs",
     "binary DRAT: dratify documents text proofs only",
     "minisat: it writes no DRAT proof, so it contributed no proofs",
-    "formulas past 16 variables, so no proof of realistic size; the README's uuf and "
-    "php benchmarks are bench/repro.py's job",
+    "the oracle past 16 variables: the large solver proofs are judged by dratify and "
+    "drat-trim alone, up to 120 variables, which is not the README's uuf and php scale",
     "tautological clauses in the input formula, and DIMACS parsing corners",
     "the list-of-steps and MemoryProof paths into check_proof: only proof text is passed",
+    "that the root-unit test and the reason test can never give different verdicts: that "
+    "rests on the argument in drat_trim-11 and on the proofs run here, not on a proof "
+    "checked by machine",
 ]
 
 
@@ -1025,8 +1563,10 @@ def main_run(args):
         "external_checkers": {
             "rate": tool_version(rate) if rate else "not run",
             "rate_modes": {m: " ".join(f) for m, (f, _, _) in RATE_MODES.items()} if rate else {},
-            "drat-trim": tool_version(drat_trim) if drat_trim else
-            "NOT RUN: not installed and not available as a package",
+            "drat-trim": (args.drat_trim_build or drat_trim) if drat_trim else
+            "NOT RUN: not on PATH and no --drat-trim given",
+            "drat_trim_modes": {m: " ".join(f) or "(no flags)"
+                                for m, f in DRAT_TRIM_MODES.items()} if drat_trim else {},
         },
         "findings": [
             {"id": "drat_trim-1", "status": "fixed", "severity": "Critical",
@@ -1035,7 +1575,8 @@ def main_run(args):
                         "ok=True on satisfiable formulas"}
         ] + [
             {"id": ident, "severity": "Note", "summary": summary}
-            for ident, category, summary in NOTE_FINDINGS if counts[category]],
+            for ident, category, summary in NOTE_FINDINGS if counts[category]
+        ] + ALWAYS_LISTED,
         "mismatch_kinds": [
             {"severity": s, "kind": k, "finding": l, "count": n}
             for (s, k, l), n in sorted(mismatches.items(), key=str)],
@@ -1133,33 +1674,125 @@ def self_test(args):
         _, kinds, _ = run(Reference, External(says_nothing, None, workdir))
         expect("a rate that gives no verdict is flagged", "external_no_verdict" in kinds)
 
-        print("drat-trim's calling convention, against shell stubs only "
-              "(the real drat-trim did not run):")
+        print("drat-trim's calling convention, against shell stubs:")
         record = pathlib.Path(workdir) / "argv"
         recorder = write_stub(workdir, "records",
-                              f'echo "$@" > "{record}"\necho "c something"\n'
+                              f'echo "$@" >> "{record}"\necho "c something"\n'
                               'echo "s VERIFIED"\nexit 40')
         ext = External(None, recorder, workdir)
-        verdicts = ext.verdicts([[1], [-1]], [("a", ())])
+        recorded = ext.trim("forward", [[1], [-1]], [("a", ())])
         argv = record.read_text().split()
-        expect("the formula, the proof and a -t limit are passed",
+        expect("the files come first, then the flags and a -t limit",
                argv[0].endswith(".cnf") and argv[1].endswith(".drat")
-               and argv[2] == "-t" and argv[3].isdigit(), " ".join(argv[2:]))
-        expect("an odd exit code does not hide s VERIFIED", verdicts["drat-trim"] is True)
+               and argv[2:4] == ["-f", "-I"] and argv[4] == "-t" and argv[5].isdigit(),
+               " ".join(argv[2:]))
+        expect("an odd exit code does not hide s VERIFIED", recorded.outcome == "verified")
         no_code = write_stub(workdir, "rejects_exit_0", 'echo "s NOT VERIFIED"; exit 0')
-        expect("exit 0 does not hide s NOT VERIFIED", External(None, no_code, workdir)
-               .verdicts([[1]], [])["drat-trim"] is False)
-        expect("no verdict is None, not a rejection",
-               External(None, says_nothing, workdir).verdicts([[1]], [])["drat-trim"] is None)
-        counts = collections.Counter()
-        analyse([[1], [-1]], [("a", ())], Dratify, External(None, says_nothing, workdir), counts)
-        expect("drat-trim's lack of a verdict is counted, not a pass",
-               counts["drat_trim_no_verdict"] == 1)
-        counts = collections.Counter()
-        a = analyse([[1, 2], [-1, 2]], [("a", (2,)), ("a", ())], Dratify,
-                    External(None, says_yes, workdir), counts)
+        expect("exit 0 does not hide s NOT VERIFIED",
+               External(None, no_code, workdir).trim("default", [[1]], []).outcome == "not_verified")
+        cr = write_stub(workdir, "carriage", 'printf "\\rc x\\n\\rs VERIFIED\\n"; exit 1')
+        expect("its \\r prefix does not hide the line",
+               External(None, cr, workdir).trim("default", [[1]], []).outcome == "verified")
+        timed = write_stub(workdir, "timed_out", 'echo "s TIMEOUT"; exit 0')
+        derived = write_stub(workdir, "derived", 'echo "s DERIVATION"; exit 1')
+        expect("s TIMEOUT and s DERIVATION are read as what they are",
+               External(None, timed, workdir).trim("default", [[1]], []).outcome == "timeout"
+               and External(None, derived, workdir).trim("forward", [[1]], []).outcome == "derivation")
+        expect("no verdict is not a rejection",
+               External(None, says_nothing, workdir).trim("default", [[1]], []).outcome == "none")
+
+        def trim_kinds(stub, formula, steps, checker=Dratify):
+            counts = collections.Counter()
+            a = analyse(formula, steps, checker, External(None, stub, workdir), counts)
+            return a, counts
+
+        a, counts = trim_kinds(says_nothing, [[1], [-1]], [("a", ())])
+        expect("drat-trim's lack of a verdict fails the run",
+               "drat_trim_no_verdict" in a.kinds, str(a.kinds))
+        a, counts = trim_kinds(timed, [[1], [-1]], [("a", ())])
+        expect("a timeout is counted and not judged",
+               counts["drat_trim_default_outcome_timeout"] == 1
+               and "drat_trim_unexplained" not in a.kinds, str(a.kinds))
+        crashes_early = write_stub(workdir, "crashes_at_the_empty_clause",
+                                   f'if [ "$(grep -c "^0$" "$2")" = 1 ] && [ ! -e "{workdir}/crashed" ]; '
+                                   f'then touch "{workdir}/crashed"; kill -SEGV $$; fi; '
+                                   f'rm -f "{workdir}/crashed"; echo "s NOT VERIFIED"')
+        a, counts = trim_kinds(crashes_early, [[1, 2]], [("a", ())])
+        expect("a crash at an unsupported empty clause, gone once the clause is, is a Note",
+               counts["drat_trim_default_note_crash_on_unsupported_empty_clause"] == 1
+               and not a.mismatches, str(a.kinds))
+        one_zero = write_stub(workdir, "crashes_at_one_empty_clause",
+                              'if [ "$(grep -c "^0$" "$2")" = 1 ]; then kill -SEGV $$; fi; '
+                              'echo "s NOT VERIFIED"')
+        a, counts = trim_kinds(one_zero, [[1, 2]], [("a", ())])
+        expect("a crash on every run takes its answer from a proof that pads the clause",
+               counts["drat_trim_default_crashed_every_time"] == 1
+               and a.trims["default"].outcome == "not_verified" and not a.mismatches,
+               str(a.kinds))
+        crashes_anyway = write_stub(workdir, "crashes_anyway",
+                                    f'if [ ! -e "{workdir}/crashed" ]; then '
+                                    f'touch "{workdir}/crashed"; kill -SEGV $$; fi; '
+                                    f'rm -f "{workdir}/crashed"; echo "s NOT VERIFIED"')
+        a, _ = trim_kinds(crashes_anyway, [[1, 2]], [("a", (1,))])
+        expect("any other crash fails the run", "drat_trim_crash_unexplained" in a.kinds, str(a.kinds))
+        always = write_stub(workdir, "always_crashes", "kill -SEGV $$")
+        a, _ = trim_kinds(always, [[1, 2]], [("a", ())])
+        expect("a crash that never gives way to a verdict fails the run",
+               "drat_trim_no_verdict" in a.kinds, str(a.kinds))
+        a, _ = trim_kinds(says_yes, [[1, 2], [-1, 2]], [("a", (2,)), ("a", ())])
         expect("a drat-trim that accepts a false refutation of a satisfiable formula is "
                "not explained away", "external_accepted_satisfiable" in a.kinds, str(a.kinds))
+        php = [[1, 2], [-1, 2], [1, -2], [-1, -2]]
+        a, _ = trim_kinds(says_no, php, [("a", (1,)), ("a", ())])
+        expect("a drat-trim that refuses a valid refutation is unexplained",
+               "drat_trim_unexplained" in a.kinds, str(a.kinds))
+        a, _ = trim_kinds(says_yes, [*php, [-3, 4]], [("a", (-4,)), ("a", ())])
+        expect("backward skipping is no excuse when forward mode accepts too",
+               "drat_trim_unexplained" in a.kinds, str(a.kinds))
+        flips = write_stub(workdir, "text_flag_matters",
+                           'case " $* " in *" -I "*) echo "s NOT VERIFIED";; '
+                           '*) echo "s VERIFIED";; esac')
+        a, _ = trim_kinds(flips, php, [("a", (1,)), ("a", ())])
+        expect("a verdict that depends on -I is flagged",
+               "drat_trim_autodetect_changes_the_verdict" in a.kinds, str(a.kinds))
+        says_kept = write_stub(workdir, "says_it_kept",
+                               'echo "c ignoring deletion instruction 7: [3] 4 5 0"; '
+                               'echo "s NOT VERIFIED"')
+        a, _ = trim_kinds(says_kept, php, [("d", (1, 2))])
+        expect("a reason drat-trim kept and dratify did not is flagged",
+               "deletion_kept_only_by_drat_trim" in a.kinds, str(a.kinds))
+        depends = write_stub(workdir, "needs_the_deletion",
+                             'if grep -q "^d " "$2"; then echo "s VERIFIED"; '
+                             'else echo "s NOT VERIFIED"; fi')
+        a, _ = trim_kinds(depends, [[1], [2], [-1, 2]], [("d", (-1, 2))])
+        expect("a verdict that moves without a look-alike's deletion is flagged",
+               "deletion_rule_moved_the_verdict" in a.kinds, str(a.kinds))
+
+        drat_trim = args.drat_trim or shutil.which("drat-trim")
+        if drat_trim:
+            print("the real drat-trim, one shrunk example per category:")
+            for note, formula, steps in TRIM_EXAMPLES:
+                a, _ = trim_kinds(drat_trim, formula, steps)
+                expect(f"{note}: F={formula} proof={steps}",
+                       note in a.notes and not a.mismatches, f"{a.notes} {a.kinds or ''}")
+            for name, formula, steps in TRIM_AGREEMENTS:
+                a, counts = trim_kinds(drat_trim, formula, steps)
+                expect(f"both refuse the {name} case",
+                       counts["drat_trim_default_agree"] == 1 and not a.mismatches, str(a.kinds))
+            print("the documented semantics beside the real drat-trim:")
+            old = globals()["LOOKALIKES"]
+            globals()["LOOKALIKES"] = 100
+            try:
+                _, kinds, mismatches = run(Reference, External(external_rate, drat_trim, workdir))
+                expect("every drat-trim disagreement has a named cause", not kinds,
+                       str(dict(mismatches)))
+                _, kinds, _ = run(LengthOnlyDeletion, External(external_rate, drat_trim, workdir))
+                expect("the old deletion rule is still flagged with drat-trim in the run",
+                       kinds & CRITICAL_KINDS, str(sorted(kinds)))
+            finally:
+                globals()["LOOKALIKES"] = old
+        else:
+            print("  drat-trim is not available: its behaviour was exercised only on stubs")
 
         print("zero-count guard:")
         ext = External(None, None, workdir)
@@ -1181,6 +1814,8 @@ def main():
     parser.add_argument("--rate", help="path to `rate`; otherwise looked up on PATH")
     parser.add_argument("--drat-trim", dest="drat_trim",
                         help="path to drat-trim; otherwise looked up on PATH")
+    parser.add_argument("--drat-trim-build", dest="drat_trim_build",
+                        help="what to record about that binary, such as its commit")
     parser.add_argument("--results", default=f"campaign/results/{CORNER}.json",
                         help="where to write the results; empty to write nothing")
     parser.add_argument("--self-test", action="store_true")

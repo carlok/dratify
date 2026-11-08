@@ -1,7 +1,8 @@
 # drat_trim-3: `rate` verifies a proof that never writes the empty clause; dratify does not
 
-**Proposed severity: Note.** dratify is stricter, and says so. The checker compared is
-`rate` 0.3.0. `drat-trim` was not run, so whether it does the same is untested here.
+**Proposed severity: Note.** dratify is stricter, and says so. The checker compared first
+was `rate` 0.3.0. drat-trim at commit 2e3b2dc does the same: `s VERIFIED` on this proof in
+its default mode and in `-f`.
 
 ## Minimal case
 
@@ -41,8 +42,8 @@ last line can verify there and be rejected here.
 
 ## Counts
 
-Seed 1: 28 proofs, in every `rate` mode. `proofs_with_implicit_empty_clause` is a required
-category.
+Seed 1: 28 proofs, in every `rate` mode, and in drat-trim's default mode and `-f`.
+`proofs_with_implicit_empty_clause` is a required category.
 
 ## Suspected cause, and test
 

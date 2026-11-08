@@ -5,7 +5,9 @@ definitions. The rubric's Critical line says "a RUP step must be implied", and r
 literally against the current multiset this step is not. I propose Bug because the step
 *is* implied by the input and does preserve satisfiability, so it cannot refute anything
 by itself; what it contradicts is dratify's documentation. The oracle's `operational`
-flavour accepts it; drat-trim itself was not run.
+flavour accepts it. drat-trim at commit 2e3b2dc, built after this was written, ignores the
+deletion as well: `s NOT VERIFIED` in its default mode, for want of a conflict, and
+`s DERIVATION` in `-f`, so it accepts the step, as dratify now does.
 
 ## Minimal case
 

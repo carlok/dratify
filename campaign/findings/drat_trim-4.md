@@ -1,7 +1,8 @@
 # drat_trim-4: `rate`'s backward modes verify a proof with an invalid unused lemma
 
 **Proposed severity: Note.** This is the difference the README documents for drat-trim,
-seen here with `rate` 0.3.0's backward modes. `drat-trim` was not run.
+seen first with `rate` 0.3.0's backward modes. drat-trim at commit 2e3b2dc shows it too:
+`s VERIFIED` in its default mode, `s NOT VERIFIED` in `-f`.
 
 ## Minimal case
 
@@ -53,7 +54,9 @@ reject.
 
 ## Counts
 
-Seed 1: 4 proofs in each of `-p` and `-p -d`, none in the forward modes.
+Seed 1: 4 proofs in each of `-p` and `-p -d`, none in the forward modes. drat-trim's default
+mode: 1 on the corpus, and 77 of the 1,000 look-alike proofs of `drat_trim-11`,
+none in `-f`.
 
 ## Suspected cause, and test
 

@@ -1,8 +1,9 @@
 # drat_trim-5: a refutation stays refuted after a deletion undoes the propagation conflict
 
-**Proposed severity: Note.** Sound, and `rate` 0.3.0 agrees with dratify on the verdict. It
-is recorded because dratify's result differs from a literal replay of the clauses present.
-`drat-trim` was not run.
+**Proposed severity: Note.** Sound, and `rate` 0.3.0 and drat-trim at commit 2e3b2dc agree
+with dratify on the verdict: drat-trim stops reading at the first conflict, so it says
+`s VERIFIED` in its default mode and in `-f`. It is recorded because dratify's result
+differs from a literal replay of the clauses present.
 
 ## Minimal case
 

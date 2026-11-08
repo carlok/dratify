@@ -1,7 +1,9 @@
 # drat_trim-2: `rate` honouring a unit deletion rejects a proof dratify accepts
 
 **Proposed severity: Note.** The two flavours of DRAT part here, and dratify is on the
-documented side. The checker compared is `rate` 0.3.0. `drat-trim` was not run.
+documented side. The checker compared is `rate` 0.3.0. drat-trim at commit 2e3b2dc says
+`s VERIFIED` on this proof in its default mode and in `-f`, as dratify does: it ignores a
+unit deletion too. Only its `-S` honours one (`drat_trim-9`).
 
 ## Minimal case
 

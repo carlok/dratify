@@ -33,7 +33,7 @@ generator reports a required category at zero. No corner has an unexplained mism
 | Parsing | 20,000 | 87,093 | 20261108 | parsing-5 ×24,420 (Note) |
 | API shapes | 6,001 | 66,903 | 20261108 | api-6 ×1,201 (Note) |
 | Engines | 80,000 | 1,010,093 | 20261108 | none |
-| drat-trim (`rate` only) | 1,593 | 9,378 | 1 | see "Against `rate`" |
+| drat-trim and `rate` | 1,593 | 9,378 | 1 | see "Against `rate` and drat-trim" |
 | **Total** | **262,655** | **3,386,486** | | |
 
 The api, literals and parsing generators exit 1 while those Notes stay open, as designed.
@@ -101,6 +101,7 @@ the README does not describe. Rated Critical on 0.1.7's own precedent for the sa
 - parsing-7: `010` reads as 10 here and as 8 under drat-trim's `fscanf("%i")`.
 - ok_empty-4: where a refutation ends, three behaviours the docs do not state.
 - deletion-4 and rat-3: `report()`'s wording on `ignored_deletions`, now fixed in dee3b51.
+- drat_trim-2, 3, 4, 6, 7, 8, 9, 10 and 11: see "Against `rate` and drat-trim".
 
 ## Behaviour that changes
 
@@ -111,14 +112,17 @@ the README does not describe. Rated Critical on 0.1.7's own precedent for the sa
 - A proof variable more than 2^20 past the formula, with fewer occurrences than that, now raises.
   Only the old text-length bound let those through.
 
-## Against `rate`
+## Against `rate` and drat-trim
 
-`rate` 0.3.0 is the only outside checker this campaign ran. **drat-trim was never run**: it is not
-installed, no package provides it, and its source is on GitHub, outside the campaign's network
-rule. What this report says of drat-trim comes from the oracle's `operational` flavour.
+Two outside checkers read the same 1,593 proofs: `rate` 0.3.0, and drat-trim at commit
+`2e3b2dc0ecf938addbd779d42877b6ed69d9a985`, from a read-only clone of
+github.com/marijnheule/drat-trim, built with `cc -std=c99 -O2`. **Nothing from either is Critical
+or a Bug.** Every disagreement below is a Note, and for drat-trim the generator shows the cause on
+each one: it changes the proof by the named cause, and both checkers must then give the expected
+answer. One it cannot show fails the run. Seeds 2 and 3 have none either.
 
-Disagreements on 1,593 proofs. In the forward modes `rate` rejected no proof a solver wrote. Only
-the deletion-skipping modes compare like with like.
+`rate`. In the forward modes it rejected no proof a solver wrote. Only the deletion-skipping modes
+compare like with like.
 
 | `rate` mode | Disagree | `rate` accepts, dratify rejects | dratify accepts, `rate` rejects | Why |
 |---|---:|---:|---:|---|
@@ -127,12 +131,75 @@ the deletion-skipping modes compare like with like.
 | `-f -p` | 61 | 28 | 33 | adds drat_trim-2: `rate` honours a unit deletion |
 | `-p` | 65 | 32 | 33 | the same, and drat_trim-4: backward checking skips an unused lemma |
 
-All Notes: they follow from the flavours of DRAT or from forward against backward checking. On the
-Critical case, `rate` rejects in all four modes.
+drat-trim. A proof can have two causes, so the last column can add up to more than the disagreements.
+
+| drat-trim mode | Disagree | it accepts, dratify rejects | dratify accepts, it rejects | Why |
+|---|---:|---:|---:|---|
+| default, `-I` | 32 | 32 | 0 | drat_trim-3 ×28, -4 ×1, -6 ×3, -7 ×1 |
+| forward, `-f -I` | 31 | 31 | 0 | drat_trim-3 ×28, -6 ×3 |
+
+- drat_trim-3: it stops at the first propagation conflict; dratify asks for the written clause.
+- drat_trim-4 and -7: backward, it skips an unused lemma, and a RAT candidate not yet used.
+- drat_trim-6: it falls back to the other literals as pivot. dratify documents the first.
+- drat_trim-8: its parser reads `d 0` and swallows the next token. No seed reached this; the
+  self-test pins it.
+- drat_trim-10: it reads past its clause database at a final empty clause with no conflict behind
+  it, and can segfault: 2 proofs in the default mode in this run, varying between runs. The generator
+  confirms the cause each time and judges the answer it gets without the crash, `s NOT VERIFIED`,
+  which is dratify's too.
+
+`s DERIVATION`, printed 216 times in `-f`, says every lemma passed and nothing was refuted. It counts as
+agreeing with dratify's `ok=False` and no failed step. Text detection does not misfire: its binary
+test looks only for characters a text proof does not have, and running without `-I` gave the same
+verdict on all 1,593. The exit code is not read, because `s VERIFIED` can come with exit 1 and
+`s TIMEOUT` with exit 0. `-t 20` never fired.
+
+No mode honours a unit deletion and also checks a refutation (drat_trim-9). `-S` honours them, but
+it checks deletions and skips additions, and its `s VERIFIED` appeared on 190 satisfiable and 79
+unsatisfiable formulas, so it is counted and not compared. `-W` stops with exit 80 and no `s` line at
+a warning, and at an ignored reason.
+
+The named cases, in every mode:
+
+| Proof | default | `-f` | `-S` | `-W` | dratify |
+|---|---|---|---|---|---|
+| `(1) (-1 2)`; `d -1 2`, `-2`, `0` | NOT VERIFIED | NOT VERIFIED | NOT VERIFIED | exit 80 | `ok=False`, step 2 |
+| `(1) (-1 2) (-2 3)`; `d -1 2`, `2` | NOT VERIFIED | DERIVATION | NOT VERIFIED | exit 80 | `ok=False`, no failed step |
+
+`rate` rejects the first in all four modes.
+
+**The deletion rule.** drat-trim tests identity: is this clause the recorded reason for its first
+literal (drat-trim.c line 807)? dratify tests shape: one literal true and the others false. So
+dratify keeps more. On `(1) (2) (-1 2)`, `d -1 2` is applied by drat-trim, whose reason for 2 is `(2)`,
+and ignored by dratify. The generator lists what drat-trim keeps from its `-v` output, and on each
+proof where the two differ it changes the reading on either side and asks again.
+
+| Seed 1 | corpus | look-alikes (`gen_lookalike`) |
+|---|---:|---:|
+| Proofs where the rules differ | 27 | 677 |
+| Clauses only dratify keeps | 57 | 701 |
+| Clauses only drat-trim keeps | 0 | 0 |
+| Verdict stays: drat-trim without those deletions, default and `-f` | 27 | 677 |
+| Verdict stays: dratify honouring those deletions | 27 | 677 |
+| dratify accepts | 0 | 197 |
+
+So the rules differ and no verdict moved, on seeds 1, 2 and 3. drat_trim-11 gives the argument that
+none can: a clause with every variable set at a root that never shrinks cannot propagate, and as a
+RAT candidate it only repeats what the real reason already decides. This is an argument and a test,
+not a proof checked by machine. The documents' "approximated" is accurate. One README sentence is
+not: "A proof that relies on such a clause being gone can be rejected" holds for a real reason and
+not for a look-alike. It is reported there and not changed.
+
+**Real solvers.** In the run, 108 proofs from CaDiCaL and 85 from kissat: drat-trim rejected none of the
+unsatisfiable ones in either mode. Past the oracle's limit, 28 more refutations, 29,304 steps, on php up to 7
+pigeons and random 3-SAT up to 120 variables: both engines of dratify and both modes of drat-trim
+accept all of them. Those two passes are outside the 1,593 and are counted in the results under
+`lookalike_` and `large_solver_`.
 
 ## What was not checked
 
-- drat-trim itself, as above, and `rate` with no `-p`.
+- `rate` with no `-p`, and drat-trim's `-p`, `-u` and `-O`, its binary reading, and any commit but
+  2e3b2dc.
 - Binary DRAT, which dratify does not read.
 - Formulas past 16 variables in the campaign, and long proofs. The real-solver check above is the
   only evidence at realistic size.

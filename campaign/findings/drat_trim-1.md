@@ -5,8 +5,9 @@ both engines, from proof text with default arguments.
 
 This is the same defect as `deletion-1` and `root-1`, reached independently. What this
 file adds is the external comparison and the measurement of real solver proofs below.
-`drat-trim` itself was not run: it is not installed. Everything external here is `rate`
-0.3.0.
+Everything external here is `rate` 0.3.0. drat-trim was built later, at commit 2e3b2dc: it
+says `s NOT VERIFIED` on this proof in its default mode, in `-f` and in `-S`, and `-W` stops
+it with exit 80 at the deletion it ignores (`drat_trim-11`).
 
 ## Minimal case
 
