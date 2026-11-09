@@ -1,0 +1,88 @@
+{
+  "corner": "rat",
+  "seeds": [
+    20261108
+  ],
+  "instances": 10000,
+  "steps": 132742,
+  "per_category_counts": {
+    "bogus_refutation_on_sat_attempted": 3746,
+    "checker_runs": 80000,
+    "deletions_absent": 326,
+    "deletions_applied": 12022,
+    "deletions_ignored_after_conflict": 426,
+    "deletions_ignored_unit": 1965,
+    "deletions_of_a_root_reason": 4793,
+    "formula_tautology_dropped": 1314,
+    "input_refuted_by_propagation": 235,
+    "instances_no_stale": 7063,
+    "instances_stale": 2937,
+    "no_empty_clause_proofs": 5208,
+    "note_literal_rat_false_but_preserves_sat": 165,
+    "note_literal_tautological_candidate_differs": 165,
+    "note_verdict_differs_length_one": 2165,
+    "note_verdict_differs_specified": 2421,
+    "rat_after_deletion": 3946,
+    "rat_all_resolvents_tautological": 2602,
+    "rat_enabled_by_deletion": 1679,
+    "rat_fresh_variable_pivot": 2723,
+    "rat_nontrivial_resolvents": 3744,
+    "rat_only_on_first_literal": 5523,
+    "rat_unit_at_root_on_arrival": 3160,
+    "rat_vacuous": 3836,
+    "rat_with_root_false_literal": 3746,
+    "refutation_accepted_unsat": 653,
+    "refutation_with_deletions_accepted": 304,
+    "refutation_with_rat_steps_accepted": 354,
+    "rejected_candidate_copy_survived": 143,
+    "rejected_rat_on_a_later_literal": 642,
+    "rejected_tautological_candidate": 454,
+    "rejected_unit_candidate_survived": 567,
+    "repeated_literal_steps": 3482,
+    "runs_deletions_disabled": 9765,
+    "runs_rat_disabled": 9765,
+    "runs_rat_disabled_rat_step_rejected": 5653,
+    "steps_rat_only_accepted": 10182,
+    "steps_rejected": 6635,
+    "steps_rup_accepted": 18228,
+    "tautological_candidate_seen": 1195,
+    "tautological_lemma_accepted": 3082
+  },
+  "runtime_seconds": 43.7,
+  "findings": [
+    {
+      "id": "rat-1",
+      "status": "fixed",
+      "severity": "Critical",
+      "summary": "ok=True on a satisfiable formula: the root assignment outlives a deleted non-unit reason, so a RAT lemma falsified by the stale assignment sets root_conflict. F = 1 / -1 2, proof `d -1 2 0`, `-2 0`, `0`. Both engines."
+    },
+    {
+      "id": "rat-2",
+      "status": "fixed",
+      "severity": "Bug",
+      "summary": "Engines disagree on failed_clause for a rejected step that repeats a literal: Python reports it deduplicated, native as written."
+    },
+    {
+      "id": "rat-4",
+      "status": "fixed",
+      "severity": "Bug",
+      "summary": "A proof naming a fresh variable above the literal bound raises ValueError instead of being checked: `8 0` on a one-variable formula is vacuously RAT. The bound depends on the proof's text length, so a comment line changes the outcome, and a list of steps gets a tighter bound than the same proof as text."
+    },
+    {
+      "id": "rat-3",
+      "status": "fixed",
+      "severity": "Note",
+      "summary": "A reason-clause deletion splits dratify's documented flavour from drat-trim's operational one, and ignored_deletions and report() call absent-clause deletions 'unit deletions ignored'."
+    }
+  ],
+  "not_checked": [
+    "drat-trim itself: it is not installed here. The operational flavour is the oracle's approximation of it, and dratify's rule is that same test.",
+    "steps after the empty clause: the generator cuts there, as the checkers do.",
+    "ok=False reasons, beyond requiring the engines to agree on the text.",
+    "failed_step and resolvents_checked when deletions are disabled are compared; ignored_deletions in that configuration is compared only between engines.",
+    "resolvents_checked on a rejected step is checked against bounds (1 to the number of non-tautological candidates), not exactly, because the oracle fixes no candidate order.",
+    "proofs from real solvers: every proof here is generated.",
+    "binary DRAT, which dratify does not read, and header or parser edge cases, which belong to other corners.",
+    "the Rust crate's public API directly: native runs go through cdclkit_native and dratify's check_proof."
+  ]
+}
