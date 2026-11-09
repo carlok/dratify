@@ -12,6 +12,8 @@ crate. The two are released together and are meant to be a matching pair; from
 
 ## [Unreleased]
 
+## [0.1.11] — 2026-11-09
+
 ### Fixed
 
 - **A refutation of a satisfiable formula was accepted, on both engines.**
@@ -480,7 +482,8 @@ Initial release: a DRAT/DRUP proof checker that installs anywhere.
   same rules.
 - Tokenless publishing to both registries via Trusted Publishing.
 
-[Unreleased]: https://github.com/carlok/dratify/compare/v0.1.10...HEAD
+[Unreleased]: https://github.com/carlok/dratify/compare/v0.1.11...HEAD
+[0.1.11]: https://github.com/carlok/dratify/compare/v0.1.10...v0.1.11
 [0.1.10]: https://github.com/carlok/dratify/compare/v0.1.9...v0.1.10
 [0.1.9]: https://github.com/carlok/dratify/compare/v0.1.8...v0.1.9
 [0.1.8]: https://github.com/carlok/dratify/compare/v0.1.7...v0.1.8
