@@ -4,7 +4,11 @@ Formulas of at most 16 variables, an oracle that shares no code with this reposi
 (`campaign/oracle.py`, reviewed by a second agent against the definitions in Wetzler, Heule and
 Hunt 2014 and Rebola-Pardo and Biere 2018), and one seeded generator per corner.
 
-**Three Critical defects were found and fixed on this branch, none yet released.** The deleted
+**Three Critical defects were found and fixed, and released in 0.1.11:**
+[GHSA-xccm-c64j-hf7g](https://github.com/carlok/dratify/security/advisories/GHSA-xccm-c64j-hf7g),
+[GHSA-2j4v-jw9r-f4gw](https://github.com/carlok/dratify/security/advisories/GHSA-2j4v-jw9r-f4gw) and
+[GHSA-v562-gjx2-cg8p](https://github.com/carlok/dratify/security/advisories/GHSA-v562-gjx2-cg8p).
+The commit hashes below are this branch's; `main` holds the same changes under its own. The deleted
 reason clause is the serious one: every release from 0.1.0 to 0.1.10 accepts the refutation below
 of a satisfiable formula, on default flags, through proof text. Each version was installed and run
 on it: the wheels from PyPI on the Python engine, the crates from crates.io directly, and
@@ -215,7 +219,6 @@ accept all of them. Those two passes are outside the 1,593 and are counted in th
 
 Each corner's full list is under `not_checked` in `campaign/results/<corner>.json`.
 
-## Before this reaches users
+## Where the fixes went
 
-The fixes need a release of dratify. cdclkit-native embeds the crate, so it stays exposed until it
-is rebuilt against that release.
+dratify 0.1.11, on PyPI and crates.io, and `cdclkit-native` 0.2.1, which embeds the crate.
