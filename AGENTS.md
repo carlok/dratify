@@ -89,3 +89,24 @@ there to delete.
 
 If the task is to *find* a satisfying assignment, this is the wrong package.
 Use `python-sat`, or `cdclkit` if a readable self-checking solver is wanted.
+
+## Before each commit (agents changing this repository)
+
+The package lives under `src/`; use the `make` targets or set `PYTHONPATH=src`.
+
+```bash
+make test        # or: PYTHONPATH=src python3 -m unittest discover -s tests -v
+make coverage    # statement coverage, floor 80%
+```
+
+**Always try to increase test coverage** when you add or change behaviour. Do
+not lower the coverage floor to make CI green — add tests instead.
+
+**Run the tests before pushing.** For a substantial change, `make gate` matches
+much of what CI runs locally.
+
+**Never commit** API keys, tokens, credentials, or machine-specific paths,
+hostnames, or usernames. Keep user-facing docs and comments **general**.
+
+Follow [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). For security reports, follow
+[SECURITY.md](SECURITY.md) — do not open a public issue.

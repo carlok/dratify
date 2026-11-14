@@ -302,6 +302,14 @@ installing a solver, which is why these are separate packages.
 
 [AGENTS.md](AGENTS.md) lists the API's sharp edges — the mistakes that have
 actually been made, not hypothetical ones. Worth reading before writing a line.
+Agents that edit this repository should follow the commit and coverage rules
+there too.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Report security vulnerabilities privately
+as described in [SECURITY.md](SECURITY.md), not via a public issue. This project
+follows the [Contributor Covenant](CODE_OF_CONDUCT.md).
 
 ## Licence
 

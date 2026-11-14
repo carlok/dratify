@@ -2,9 +2,16 @@
 
 ## Reporting
 
-Use GitHub's [private vulnerability
-reporting](https://github.com/carlok/dratify/security/advisories/new). Please do
-not open a public issue for anything in the first category below.
+Report vulnerabilities privately through GitHub's [private vulnerability
+reporting](https://github.com/carlok/dratify/security/advisories/new): open the
+repository **Security** tab and choose **Report a vulnerability** (or use that
+link directly).
+
+Please do not open a public issue for a security report, and do not report by
+email or other channels. There is no promised response time or SLA; reports are
+handled as capacity allows.
+
+See also [CONTRIBUTING.md](CONTRIBUTING.md) and the [README](README.md).
 
 ## What counts as a vulnerability here
 
