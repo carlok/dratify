@@ -1,5 +1,9 @@
 # Contributing
 
+Questions and bug reports use the GitHub issue templates. This project follows
+the [Contributor Covenant](CODE_OF_CONDUCT.md). Maintainer:
+[@carlok](https://github.com/carlok).
+
 ## Running things
 
 The package lives under `src/`, so it must be on the path to import without
@@ -59,4 +63,5 @@ Three properties are load-bearing and a change should not quietly cost one:
 
 ## Reporting a vulnerability
 
-See [SECURITY.md](SECURITY.md). Do not open a public issue for one.
+See [SECURITY.md](SECURITY.md). Report only through GitHub private vulnerability
+reporting — not via a public issue or email.
