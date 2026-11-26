@@ -246,5 +246,42 @@ class TestTokensAreAscii(unittest.TestCase):
                          [("a", (1,)), ("d", (1, 2))])
 
 
+class TestDeletionOfNothing(unittest.TestCase):
+    """`d 0` deletes the empty clause, which is never in the database.
+
+    drat-trim at 2e3b2dc reads the line and then swallows the next token, so on
+    the proof below it rejects a correct refutation
+    (campaign/findings/drat_trim-8.md). dratify reads the line as written: an
+    ignored deletion, after which `1 0` is an ordinary lemma.
+    """
+    engine = "python"
+    CNF = "p cnf 2 4\n1 2 0\n-1 2 0\n1 -2 0\n-1 -2 0\n"
+
+    def test_it_is_ignored_and_the_next_line_is_read(self):
+        r = check_proof(parse_dimacs(self.CNF), "d 0\n1 0\n0\n",
+                        engine=self.engine)
+        self.assertTrue(r.ok, r.reason)
+        self.assertEqual(r.ignored_deletions, 1)
+        self.assertEqual(r.deletions, 0)
+        plain = check_proof(parse_dimacs(self.CNF), "1 0\n0\n",
+                            engine=self.engine)
+        self.assertEqual(r.rup_steps, plain.rup_steps,
+                         "`1 0` after `d 0` is checked, not swallowed")
+
+
+@unittest.skipIf(_native() is None,
+                 "no native checker installed; CI installs cdclkit-native")
+class TestDeletionOfNothingNative(TestDeletionOfNothing):
+    engine = "native"
+
+    @classmethod
+    def setUpClass(cls):
+        register_native(_native())
+
+    @classmethod
+    def tearDownClass(cls):
+        register_native(None)
+
+
 if __name__ == "__main__":
     unittest.main()
