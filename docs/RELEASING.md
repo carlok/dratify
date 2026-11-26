@@ -47,7 +47,7 @@ be configured. That is done; it is not needed again.
 
 ```bash
 make gate                     # tests, coverage, compile check, cargo test, clippy
-make native && make test-native   # the suite with a native checker present
+make native && make test-native   # the whole suite with the Rust checker; fails on a native skip
 python bench/repro.py --quick     # the numbers the README quotes
 ```
 
@@ -83,11 +83,14 @@ comparison link at the bottom. Write for someone deciding whether to upgrade.
 ## 4. Tag
 
 ```bash
-git tag -s v0.1.4 -m "dratify 0.1.4"
+git tag -a vX.Y.Z -m "dratify X.Y.Z"   # annotated; use -s instead if you sign
 git push origin main --follow-tags
 ```
 
-The tag push is what publishes. Watch it:
+The tag push is what publishes: `build` and `rust-test` must both pass before
+`pypi` and `crates` start, so a crate that fails its tests cannot follow a PyPI
+upload of the same version. `github-release` then creates the GitHub Release
+from the version's CHANGELOG section. Watch it:
 
 ```bash
 gh run watch $(gh run list -w release -L1 --json databaseId -q '.[0].databaseId')
@@ -110,8 +113,9 @@ reporting success. That is what the version check is for.
 After a release, bump both there — `native/Cargo.toml` and `pyproject.toml` —
 and let its `test_both_halves_require_the_same_dratify` confirm they match.
 
-Note the ordering: dratify's own `differential` CI job installs
-`cdclkit-native`, so release dratify first, then cdclkit.
+Release dratify first, then cdclkit: cdclkit pins a published dratify on both
+halves. dratify's own `differential` CI job does not care about the order, as
+it builds cdclkit-native from cdclkit's `main` against this checkout's `rust/`.
 
 ## 6. After
 
