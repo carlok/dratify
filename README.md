@@ -226,10 +226,10 @@ That is the trade the speed table is buying, in both directions.
 
 ## Tests
 
-273 tests and 92% statement coverage, of which the enforced floor is 80% — the
-percentage is a snapshot, the floor is the gate. Fifty-five of the tests need a
+277 tests and 92% statement coverage, of which the enforced floor is 80% — the
+percentage is a snapshot, the floor is the gate. Fifty-six of the tests need a
 native checker and two need `python-sat`, and both kinds skip without them, so
-the dependency-free job runs 216 and two separate jobs (below) run the rest,
+the dependency-free job runs 219 and two separate jobs (below) run the rest,
 failing if anything they exist for was skipped. The negative cases carry
 most of the weight: a checker that accepts everything passes any suite that
 only feeds it valid proofs, so there are tests for truncated proofs, bogus
@@ -250,9 +250,11 @@ The coverage tool uses the standard library's `trace` module, so checking this
 package needs no more dependencies than using it.
 
 A separate CI job builds the native checker from the commit under test and
-runs `tests/test_differential.py`, which compares the two implementations on
-every result field over a 150-instance random sweep plus hand-written cases.
-That job fails if those tests *skip* — the agreement claim above is only worth
+runs the whole suite with it (`make test-native` locally). That covers
+`tests/test_differential.py`, which compares the two implementations on every
+result field over a 150-instance random sweep plus hand-written cases, and the
+native twin of every engine-specific test. That job fails if any test that
+needs the native checker *skips* — the agreement claim above is only worth
 making while something is checking it.
 
 Agreement between two implementations of one design is weaker evidence than it
