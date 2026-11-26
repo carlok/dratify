@@ -12,6 +12,26 @@ crate. The two are released together and are meant to be a matching pair; from
 
 ## [Unreleased]
 
+### CI
+
+- The `differential` job runs the whole suite with the Rust checker, not two
+  modules, and fails if any native test skips. The native halves of the 0.1.11
+  fix tests had skipped on every CI run since they were added.
+- A new `msrv` job checks the crate on its declared `rust-version`.
+- A release runs `cargo test` before either registry publishes, and ends by
+  creating the GitHub Release from the version's section of this file.
+
+### Tests
+
+- `d 0`, on both engines: an ignored deletion, after which the next line is
+  read as written.
+
+### Fixed
+
+- `make test-native` failed even with the native checker installed: it asserted
+  `native_available()`, which is False until a checker is registered. It now
+  runs `tests/run_native_suite.sh`, the same script as CI.
+
 ## [0.1.11] — 2026-11-09
 
 ### Fixed
