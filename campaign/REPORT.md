@@ -8,7 +8,7 @@ Hunt 2014 and Rebola-Pardo and Biere 2018), and one seeded generator per corner.
 [GHSA-xccm-c64j-hf7g](https://github.com/carlok/dratify/security/advisories/GHSA-xccm-c64j-hf7g),
 [GHSA-2j4v-jw9r-f4gw](https://github.com/carlok/dratify/security/advisories/GHSA-2j4v-jw9r-f4gw) and
 [GHSA-v562-gjx2-cg8p](https://github.com/carlok/dratify/security/advisories/GHSA-v562-gjx2-cg8p).
-The commit hashes below are this branch's; `main` holds the same changes under its own. The deleted
+The commit hashes below are all on `main`, where the campaign branch was merged. The deleted
 reason clause is the serious one: every release from 0.1.0 to 0.1.10 accepts the refutation below
 of a satisfiable formula, on default flags, through proof text. Each version was installed and run
 on it: the wheels from PyPI on the Python engine, the crates from crates.io directly, and

@@ -33,6 +33,11 @@ assert!(c.check_step(false, &[]));   // and then so is the empty clause
   resolvent `C ∪ (D \ {~p})` is RUP.
 - **Deletion**, applied by default. Deletion is monotone-safe for RUP; RAT is
   not monotone, so RAT steps are checked against exactly the clauses present.
+  A deletion is ignored, and counted in `ignored_deletions`, when the clause
+  (read as a set) has at most one literal, is not in the database, or is unit
+  under the root assignment: exactly one literal true and the rest false,
+  which is what a reason clause looks like. Once the root assignment is in
+  conflict, every deletion is ignored.
 
 Checking is **forward**: every step is verified in order rather than working
 backwards from the empty clause, so a corrupted step is caught where it occurs.

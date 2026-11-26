@@ -11,7 +11,7 @@ export PYTHONPATH := src
 
 help:
 	@echo "make test      -- run the full suite, no Rust and no install needed"
-	@echo "make test-native-- same, with a native checker installed (see below)"
+	@echo "make test-native-- same, with the Rust checker; fails if a native test skips"
 	@echo "make coverage  -- statement coverage via the stdlib trace module"
 	@echo "make fuzz      -- randomised differential run; SEED=n to reproduce"
 	@echo "make native    -- build the Rust checker from this checkout (needs cargo)"
@@ -35,12 +35,13 @@ native:
 native-released:
 	$(PYTHON) -m pip install cdclkit-native
 
-# Fails loudly if the comparison skipped. A differential test that silently
+# Fails loudly if any native test skipped. A differential test that silently
 # disables itself is how the agreement claim went untested for three releases.
+# This is the command CI's differential job runs. It used to assert
+# native_available(), which is False until something registers a checker, so
+# it failed even with cdclkit_native installed.
 test-native:
-	@$(PYTHON) -c "import dratify; assert dratify.native_available(), \
-	 'no native checker; run make native'"
-	$(PYTHON) -m unittest discover -s tests -v
+	PYTHON=$(PYTHON) bash tests/run_native_suite.sh
 
 coverage:
 	$(PYTHON) tests/coverage_report.py

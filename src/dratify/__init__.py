@@ -75,5 +75,10 @@ __all__ = [
 
 
 def native_available() -> bool:
-    """True when the optional Rust checker is installed."""
+    """True when a Rust checker is in use.
+
+    That means `dratify_native` imports, or a module was passed to
+    `register_native`. Installing cdclkit-native alone registers nothing;
+    importing cdclkit's native engine does.
+    """
     return _nativeinfo.available()

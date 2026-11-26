@@ -18,7 +18,7 @@ Each row is a claim you can re-check without trusting this file.
 | Security advisory URL in policy | `grep advisories/new SECURITY.md` | Line containing `https://github.com/carlok/dratify/security/advisories/new` |
 | No secrets in new docs | `git grep -iE 'api[_-]?key|token|password|BEGIN (RSA\|OPENSSH)' -- '*.md' '.github'` | No matches (or only instructional negatives) |
 | Bytecode compiles | `python3 -m compileall -q src tests` | Silent success |
-| Optional: native differential job locally | `make native && make test-native` | Only if cargo is available; ends with `OK` |
+| Optional: native suite locally, as CI runs it | `make native && make test-native` | Only if cargo is available; ends with `native suite: OK, no native test skipped` |
 
 After edits, paste real `make test` and `make coverage` output into the PR
 description — do not paraphrase.
@@ -27,7 +27,7 @@ description — do not paraphrase.
 
 ### P0 — Owner-only (may require repo admin)
 
-**Enable private vulnerability reporting on GitHub**
+**Enable private vulnerability reporting on GitHub** (done: enabled as of 2026-11-26)
 
 - **Acceptance:** Repository Settings → Security → Private vulnerability
   reporting is enabled, and

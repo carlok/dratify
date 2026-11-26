@@ -62,8 +62,22 @@ jobs:
           name: dist
           path: dist/
 
+  # ci.yml does not run on tags and `cargo publish` only compiles, so without
+  # this nothing tests the crate being published. Both publish jobs wait for
+  # it: a crate that fails here must not follow a PyPI upload of the same
+  # version, which is half a release.
+  rust-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+      - run: cargo test --release --locked
+
   pypi:
-    needs: build
+    needs: [build, rust-test]
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
@@ -81,7 +95,7 @@ jobs:
           skip-existing: true
 
   crates:
-    needs: build
+    needs: [build, rust-test]
     runs-on: ubuntu-latest
     environment: crates
     permissions:
@@ -117,3 +131,33 @@ jobs:
         if: steps.check.outputs.exists == 'false'
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+
+  # A GitHub Release per tag, with that version's CHANGELOG section as its
+  # notes. Last, so a release only appears once both registries have it. The
+  # one job with write access, and only to create the release.
+  github-release:
+    needs: [pypi, crates]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: release notes from CHANGELOG.md
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          awk -v h="## [$V]" 'index($0, h) == 1 {on = 1; next} on && /^## \[/ {exit} on' \
+            CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+          if ! grep -q '[^[:space:]]' "$RUNNER_TEMP/notes.md"; then
+            echo "::error::CHANGELOG.md has no section for $V"
+            exit 1
+          fi
+      - name: create it, unless a re-run finds it there
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "::notice::release $GITHUB_REF_NAME already exists"
+          else
+            gh release create "$GITHUB_REF_NAME" --verify-tag \
+              --title "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/notes.md"
+          fi

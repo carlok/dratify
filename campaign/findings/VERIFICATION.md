@@ -1,7 +1,8 @@
 # Verification of the campaign's Critical candidates
 
 Independent re-check, written by someone who wrote none of the findings. Every output below
-comes from the current tree: branch `campaign/soundness`, commit `18cb747`, dratify 0.1.10.
+comes from commit `18cb747` on the campaign branch, now merged into `main`, when the tree still
+said dratify 0.1.10. The fixes shipped in 0.1.11.
 `src/`, `rust/` and `tests/` were not changed.
 
 ## Verdicts
