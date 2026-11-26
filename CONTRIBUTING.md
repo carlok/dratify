@@ -22,7 +22,7 @@ this name — installing a proof checker should never require a toolchain:
 
 ```bash
 make native      # build it from this checkout's rust/ (needs cargo)
-make test-native # the suite with it present; fails if it is absent
+make test-native # the suite with it present; fails if it is absent or a native test skips
 ```
 
 `make native` compiles cdclkit-native against your working copy of `rust/`.
